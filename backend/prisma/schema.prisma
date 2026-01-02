@@ -1,0 +1,517 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// AUTH & IDENTITY
+// ============================================
+
+enum UserRole {
+  OWNER
+  STAFF
+  VIEWER
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String?  @unique
+  phone     String?  @unique
+  password  String?  // nullable for OAuth/phone-only auth
+  firstName String?
+  lastName  String?
+  role      UserRole @default(VIEWER)
+  isActive  Boolean  @default(true)
+  
+  // Organization membership
+  organizationMemberships OrganizationMember[]
+  
+  // Refresh tokens
+  refreshTokens RefreshToken[]
+  
+  // Audit
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([email])
+  @@index([phone])
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  isRevoked Boolean  @default(false)
+  
+  // Relationships
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Audit
+  createdAt DateTime @default(now())
+  
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+}
+
+// ============================================
+// USER-FACING AUTOMATION JOBS
+// ============================================
+
+enum AutomationJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model AutomationJob {
+  id             String             @id @default(cuid())
+  organizationId String
+  userId         String
+  workflowId     String?
+  
+  // User input
+  taskDescription String            // "What task do you want automated?"
+  inputData       Json              // User-submitted input data
+  expectedOutput  String?           // User's expected output description
+  
+  // Execution
+  status         AutomationJobStatus @default(PENDING)
+  result         Json?              // Final result
+  error          String?            // Error message if failed
+  
+  // Execution tracking
+  startedAt      DateTime?
+  completedAt    DateTime?
+  executionTime  Int?               // milliseconds
+  
+  // Relationships
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workflow       Workflow?          @relation(fields: [workflowId], references: [id], onDelete: SetNull)
+  executionLogs  ExecutionLog[]
+  
+  // Audit
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  
+  @@index([organizationId])
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model ExecutionLog {
+  id             String        @id @default(cuid())
+  jobId          String
+  step           String        // Step name or description
+  status         String        // "success", "error", "info"
+  message        String
+  data           Json?         // Additional log data
+  timestamp      DateTime      @default(now())
+  
+  // Relationships
+  job            AutomationJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  
+  @@index([jobId])
+  @@index([timestamp])
+}
+
+// ============================================
+// ORGANIZATION (Multi-tenant)
+// ============================================
+
+model Organization {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+  
+  // Relationships
+  members     OrganizationMember[]
+  workflows   Workflow[]
+  events      Event[]
+  auditLogs   AuditLog[]
+  workflowExecutions WorkflowExecution[]
+  automationJobs     AutomationJob[]
+  
+  // Subscription (future)
+  subscriptionTier String? @default("free")
+  
+  // Audit
+  createdAt   DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  
+  @@index([slug])
+}
+
+model OrganizationMember {
+  id             String   @id @default(cuid())
+  userId         String
+  organizationId String
+  role           UserRole @default(VIEWER)
+  isActive       Boolean  @default(true)
+  
+  // Relationships
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  
+  // Audit
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+}
+
+// ============================================
+// EVENT & WORKFLOW ENGINE
+// ============================================
+
+enum EventType {
+  SALE_RECORDED
+  APPOINTMENT_SCHEDULED
+  APPOINTMENT_MISSED
+  PATIENT_REGISTERED
+  INVENTORY_LOW
+  MESSAGE_RECEIVED
+  FORM_SUBMITTED
+  CUSTOM
+}
+
+enum WorkflowStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  PAUSED
+  WAITING_APPROVAL
+}
+
+enum WorkflowStepStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  SKIPPED
+}
+
+model Event {
+  id             String    @id @default(cuid())
+  organizationId String
+  type           EventType
+  name           String
+  payload        Json      // Flexible event data
+  source         String?   // Where the event came from (e.g., "whatsapp", "api", "scheduled")
+  metadata       Json?     // Additional context
+  
+  // Relationships
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  triggeredWorkflows WorkflowExecution[]
+  
+  // Audit
+  createdAt      DateTime  @default(now())
+  
+  @@index([organizationId, type])
+  @@index([createdAt])
+}
+
+model Workflow {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  isActive       Boolean  @default(true)
+  
+  // Trigger configuration
+  triggerEventType EventType?
+  triggerCondition Json?  // Conditional logic (e.g., { field: "amount", operator: ">", value: 1000 })
+  
+  // Workflow steps (stored as JSON for flexibility)
+  steps          Json     // Array of step definitions
+  
+  // Relationships
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  executions     WorkflowExecution[]
+  automationJobs AutomationJob[]
+  
+  // Audit
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  
+  @@index([organizationId])
+  @@index([triggerEventType])
+}
+
+model WorkflowExecution {
+  id             String          @id @default(cuid())
+  workflowId     String
+  organizationId String
+  eventId        String?         // Event that triggered this execution
+  status         WorkflowStatus  @default(PENDING)
+  currentStep    Int             @default(0)
+  
+  // Execution data
+  input          Json            // Input data for the workflow
+  output         Json?           // Final output
+  error          String?         // Error message if failed
+  
+  // Human-in-the-loop
+  requiresApproval Boolean       @default(false)
+  approvedBy      String?       // User ID who approved
+  approvedAt       DateTime?
+  
+  // Relationships
+  workflow       Workflow        @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  event          Event?          @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  steps          WorkflowStep[]
+  
+  // Audit
+  startedAt      DateTime?       @default(now())
+  completedAt    DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  
+  @@index([workflowId])
+  @@index([organizationId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model WorkflowStep {
+  id                String            @id @default(cuid())
+  executionId       String
+  stepIndex         Int
+  stepType          String            // "ai_process", "send_message", "update_record", "wait", "approval"
+  status            WorkflowStepStatus @default(PENDING)
+  
+  // Step configuration
+  config            Json              // Step-specific configuration
+  input             Json?             // Input for this step
+  output            Json?              // Output from this step
+  error             String?           // Error if failed
+  
+  // AI processing
+  aiRequestId       String?           // Reference to AI service request
+  aiConfidence      Float?            // Confidence score from AI
+  
+  // Relationships
+  execution         WorkflowExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  aiRequest         AIRequest?       @relation("AIRequestWorkflowSteps", fields: [aiRequestId], references: [id], onDelete: SetNull)
+  communication     Communication?   @relation("CommunicationWorkflowSteps", fields: [communicationId], references: [id], onDelete: SetNull)
+  communicationId  String?
+  
+  // Audit
+  startedAt         DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  
+  @@unique([executionId, stepIndex])
+  @@index([executionId])
+  @@index([status])
+}
+
+// ============================================
+// AI SERVICE LAYER
+// ============================================
+
+enum AIRequestType {
+  TEXT_UNDERSTANDING
+  CLASSIFICATION
+  SUMMARIZATION
+  DECISION_SUGGESTION
+  EXTRACTION
+}
+
+enum AIRequestStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model AIRequest {
+  id            String          @id @default(cuid())
+  organizationId String
+  type          AIRequestType
+  status        AIRequestStatus @default(PENDING)
+  
+  // Input
+  prompt        String
+  context       Json?           // Additional context
+  model         String?         // AI model used
+  
+  // Output
+  response      Json?           // Structured response
+  confidence    Float?          // Confidence score (0-1)
+  tokensUsed    Int?
+  cost          Float?          // Cost in USD
+  
+  // Relationships
+  workflowSteps WorkflowStep[] @relation("AIRequestWorkflowSteps")
+  
+  // Audit
+  requestedAt   DateTime        @default(now())
+  completedAt   DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  
+  @@index([organizationId])
+  @@index([status])
+  @@index([requestedAt])
+}
+
+// ============================================
+// COMMUNICATION ORCHESTRATION
+// ============================================
+
+enum CommunicationChannel {
+  WHATSAPP
+  SMS
+  EMAIL
+  VOICE
+}
+
+enum CommunicationStatus {
+  PENDING
+  SENT
+  DELIVERED
+  FAILED
+  READ
+}
+
+model MessageTemplate {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  channel        CommunicationChannel
+  language       String   @default("en") // "en", "sw" (Swahili)
+  content        String   // Template content with variables {{variable}}
+  variables      Json?    // Available variables and their types
+  
+  // Relationships
+  communications Communication[]
+  
+  // Audit
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  
+  @@index([organizationId])
+  @@index([channel])
+}
+
+model Communication {
+  id             String             @id @default(cuid())
+  organizationId String
+  channel        CommunicationChannel
+  templateId    String?
+  status         CommunicationStatus @default(PENDING)
+  
+  // Recipient
+  to             String             // Phone number, email, etc.
+  toName         String?
+  
+  // Content
+  content        String
+  language       String             @default("en")
+  
+  // Delivery
+  externalId     String?            // ID from external service (Twilio, etc.)
+  deliveredAt    DateTime?
+  readAt         DateTime?
+  error          String?
+  retryCount     Int                @default(0)
+  
+  // Relationships
+  template       MessageTemplate?   @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  workflowSteps  WorkflowStep[]    @relation("CommunicationWorkflowSteps") // Steps that triggered this communication
+  
+  // Audit
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  
+  @@index([organizationId])
+  @@index([channel, status])
+  @@index([to])
+  @@index([createdAt])
+}
+
+// ============================================
+// DATA & AUDIT
+// ============================================
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  EXECUTE
+  APPROVE
+  REJECT
+  AI_PROCESS
+  MESSAGE_SENT
+}
+
+model AuditLog {
+  id             String      @id @default(cuid())
+  organizationId String?
+  userId         String?     // User who performed the action
+  action         AuditAction
+  entityType     String      // "User", "Workflow", "Event", etc.
+  entityId       String?
+  
+  // Details
+  description    String
+  metadata       Json?       // Additional context
+  changes        Json?       // Before/after for updates
+  
+  // Relationships
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+  
+  // Audit
+  createdAt      DateTime     @default(now())
+  
+  @@index([organizationId])
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+model HumanFeedback {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String   // User who provided feedback
+  
+  // What is being corrected
+  entityType     String   // "WorkflowStep", "AIRequest", "Communication"
+  entityId       String
+  
+  // Feedback
+  feedbackType   String   // "correction", "improvement", "approval", "rejection"
+  originalValue  Json?    // What the system did
+  correctedValue Json?    // What the human corrected it to
+  comment        String?
+  
+  // Learning
+  usedForTraining Boolean @default(false)
+  
+  // Audit
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  
+  @@index([organizationId])
+  @@index([entityType, entityId])
+  @@index([userId])
+}
+
