@@ -1,7 +1,7 @@
 "use client";
 
 import { ProtectedRoute } from "@/components/protected-route";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { apiClient } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { useRouter } from "next/navigation";
@@ -32,21 +32,21 @@ export default function NewEventPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    loadOrganizations();
-  }, []);
-
-  const loadOrganizations = async () => {
+  const loadOrganizations = useCallback(async () => {
     try {
       const orgs = await apiClient.getMyOrganizations();
       setOrganizations(orgs);
       if (orgs.length > 0) {
-        setFormData({ ...formData, organizationId: orgs[0].id });
+        setFormData(prev => ({ ...prev, organizationId: orgs[0].id }));
       }
     } catch (error) {
       console.error("Failed to load organizations:", error);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadOrganizations();
+  }, [loadOrganizations]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

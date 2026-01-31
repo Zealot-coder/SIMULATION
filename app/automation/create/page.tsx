@@ -34,13 +34,13 @@ export default function CreateAutomationPage() {
         parsedInput = { raw: inputData };
       }
 
-      const response = await apiClient.post("/automation/create", {
+      const response = await apiClient.post<{ id: string }>("/automation/create", {
         taskDescription,
         inputData: parsedInput,
         expectedOutput: expectedOutput || undefined,
       });
 
-      router.push(`/automation/${response.data.id}/status`);
+      router.push(`/automation/${response.id}/status`);
     } catch (err: any) {
       setError(err.response?.data?.message || "Failed to create automation job");
     } finally {
@@ -67,7 +67,7 @@ export default function CreateAutomationPage() {
               Create Automation
             </CardTitle>
             <CardDescription>
-              Tell us what you want automated, provide the input data, and we'll handle the rest.
+              Tell us what you want automated, provide the input data, and we&apos;ll handle the rest.
             </CardDescription>
           </CardHeader>
           <CardContent>

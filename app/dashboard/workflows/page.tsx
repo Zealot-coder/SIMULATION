@@ -1,7 +1,7 @@
 "use client";
 
 import { ProtectedRoute } from "@/components/protected-route";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { apiClient } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
@@ -13,17 +13,7 @@ export default function WorkflowsPage() {
   const [selectedOrg, setSelectedOrg] = useState<string>("");
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadOrganizations();
-  }, []);
-
-  useEffect(() => {
-    if (selectedOrg) {
-      loadWorkflows();
-    }
-  }, [selectedOrg]);
-
-  const loadOrganizations = async () => {
+  const loadOrganizations = useCallback(async () => {
     try {
       const orgs = await apiClient.getMyOrganizations();
       setOrganizations(orgs);
@@ -35,16 +25,26 @@ export default function WorkflowsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const loadWorkflows = async () => {
+  const loadWorkflows = useCallback(async () => {
     try {
       const data = await apiClient.getWorkflows(selectedOrg);
       setWorkflows(data);
     } catch (error) {
       console.error("Failed to load workflows:", error);
     }
-  };
+  }, [selectedOrg]);
+
+  useEffect(() => {
+    loadOrganizations();
+  }, [loadOrganizations]);
+
+  useEffect(() => {
+    if (selectedOrg) {
+      loadWorkflows();
+    }
+  }, [selectedOrg, loadWorkflows]);
 
   return (
     <ProtectedRoute>

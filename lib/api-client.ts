@@ -27,9 +27,9 @@ class ApiClient {
     options: RequestInit = {}
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
-    const headers: HeadersInit = {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...options.headers,
+      ...(options.headers as Record<string, string> | undefined),
     };
 
     if (this.token) {
@@ -66,52 +66,52 @@ class ApiClient {
     password?: string;
     firstName?: string;
     lastName?: string;
-  }) {
+  }): Promise<{ accessToken: string; refreshToken: string; user: any }> {
     return this.request<{ accessToken: string; refreshToken: string; user: any }>('/auth/register', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
-  async login(data: { email?: string; phone?: string; password?: string }) {
+  async login(data: { email?: string; phone?: string; password?: string }): Promise<{ accessToken: string; refreshToken: string; user: any }> {
     return this.request<{ accessToken: string; refreshToken: string; user: any }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
-  async get(endpoint: string) {
+  async get<T = any>(endpoint: string): Promise<T> {
     return this.request(endpoint, { method: 'GET' });
   }
 
-  async post(endpoint: string, data?: any) {
-    return this.request(endpoint, {
+  async post<T = any>(endpoint: string, data?: any): Promise<T> {
+    return this.request<T>(endpoint, {
       method: 'POST',
       body: data ? JSON.stringify(data) : undefined,
     });
   }
 
-  async patch(endpoint: string, data?: any) {
-    return this.request(endpoint, {
+  async patch<T = any>(endpoint: string, data?: any): Promise<T> {
+    return this.request<T>(endpoint, {
       method: 'PATCH',
       body: data ? JSON.stringify(data) : undefined,
     });
   }
 
   // Organizations
-  async createOrganization(data: { name: string; slug: string; description?: string }) {
-    return this.request('/organizations', {
+  async createOrganization(data: { name: string; slug: string; description?: string }): Promise<any> {
+    return this.request<any>('/organizations', {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
-  async getMyOrganizations() {
-    return this.request('/organizations/my');
+  async getMyOrganizations(): Promise<any[]> {
+    return this.request<any[]>('/organizations/my');
   }
 
-  async getOrganization(id: string) {
-    return this.request(`/organizations/${id}`);
+  async getOrganization(id: string): Promise<any> {
+    return this.request<any>(`/organizations/${id}`);
   }
 
   // Events
@@ -120,15 +120,15 @@ class ApiClient {
     name: string;
     payload: any;
     source?: string;
-  }) {
-    return this.request('/events', {
+  }): Promise<any> {
+    return this.request<any>('/events', {
       method: 'POST',
       body: JSON.stringify({ ...data, organizationId }),
     });
   }
 
-  async getEvents(organizationId: string) {
-    return this.request(`/events?organizationId=${organizationId}`);
+  async getEvents(organizationId: string): Promise<any[]> {
+    return this.request<any[]>(`/events?organizationId=${organizationId}`);
   }
 
   // Workflows
@@ -138,19 +138,19 @@ class ApiClient {
     triggerEventType?: string;
     triggerCondition?: any;
     steps: any[];
-  }) {
-    return this.request('/workflows', {
+  }): Promise<any> {
+    return this.request<any>('/workflows', {
       method: 'POST',
       body: JSON.stringify({ ...data, organizationId }),
     });
   }
 
-  async getWorkflows(organizationId: string) {
-    return this.request(`/workflows?organizationId=${organizationId}`);
+  async getWorkflows(organizationId: string): Promise<any[]> {
+    return this.request<any[]>(`/workflows?organizationId=${organizationId}`);
   }
 
-  async getWorkflow(id: string) {
-    return this.request(`/workflows/${id}`);
+  async getWorkflow(id: string): Promise<any> {
+    return this.request<any>(`/workflows/${id}`);
   }
 
   // Admin APIs
