@@ -1,6 +1,5 @@
 "use client";
 
-import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, MessageCircle, Mic } from "lucide-react";
 import Link from "next/link";
@@ -10,11 +9,7 @@ export function Hero() {
     <section className="relative overflow-hidden bg-gradient-to-b from-background to-muted/20">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-16 md:pt-32 md:pb-24">
         <div className="text-center">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-          >
+          <div className="animate-fade-in">
             <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight mb-6">
               Automation Toward
               <br />
@@ -34,15 +29,10 @@ export function Hero() {
                 <Link href="/use-cases">Explore Use Cases</Link>
               </Button>
             </div>
-          </motion.div>
+          </div>
 
           {/* Input Methods */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.2 }}
-            className="flex flex-wrap justify-center gap-6 text-sm text-muted-foreground"
-          >
+          <div className="flex flex-wrap justify-center gap-6 text-sm text-muted-foreground">
             <div className="flex items-center space-x-2">
               <MessageCircle className="h-5 w-5 text-primary" />
               <span>WhatsApp</span>
@@ -55,7 +45,7 @@ export function Hero() {
               <span className="text-primary">•</span>
               <span>Low-friction AI</span>
             </div>
-          </motion.div>
+          </div>
         </div>
       </div>
     </section>

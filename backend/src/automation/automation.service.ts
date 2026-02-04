@@ -1,15 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AutomationJobStatus } from '@prisma/client';
-import { Queue } from 'bullmq';
-import { InjectQueue } from '@nestjs/bullmq';
+// import { Queue } from 'bullmq'; // Disabled: Using Supabase instead
+// import { InjectQueue } from '@nestjs/bullmq'; // Disabled
 import { WorkflowExecutionService } from '../workflow/workflow-execution.service';
 
 @Injectable()
 export class AutomationService {
   constructor(
     private prisma: PrismaService,
-    @InjectQueue('automation') private automationQueue: Queue,
+    // @InjectQueue('automation') private automationQueue: Queue, // Disabled
     private workflowExecutionService: WorkflowExecutionService,
   ) {}
 
@@ -36,10 +36,10 @@ export class AutomationService {
       },
     });
 
-    // Queue job for processing
-    await this.automationQueue.add('process-automation-job', {
-      jobId: job.id,
-    });
+    // Queue job for processing - DISABLED (using Supabase instead)
+    // await this.automationQueue.add('process-automation-job', {
+    //   jobId: job.id,
+    // });
 
     return job;
   }

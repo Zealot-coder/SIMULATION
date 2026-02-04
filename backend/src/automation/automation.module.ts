@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { BullModule } from '@nestjs/bullmq';
+// import { BullModule } from '@nestjs/bullmq'; // Disabled: Using Supabase instead
 import { AutomationService } from './automation.service';
 import { AutomationController } from './automation.controller';
 import { AutomationProcessor } from './automation.processor';
@@ -10,9 +10,9 @@ import { WorkflowModule } from '../workflow/workflow.module';
   imports: [
     PrismaModule,
     WorkflowModule,
-    BullModule.registerQueue({
-      name: 'automation',
-    }),
+    // BullModule.registerQueue({
+    //   name: 'automation',
+    // }),
   ],
   controllers: [AutomationController],
   providers: [AutomationService, AutomationProcessor],

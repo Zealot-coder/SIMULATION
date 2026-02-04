@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,21 @@ const navItems = [
 
 export function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { isAuthenticated, logout } = useAuth();
+  const { isAuthenticated, logout, loading } = useAuth();
+
+  // Don't show navbar with auth buttons on protected routes
+  // Check if we're on a protected route by looking at the current path
+  const [isProtectedRoute, setIsProtectedRoute] = useState(false);
+
+  useEffect(() => {
+    const path = window.location.pathname;
+    const protectedRoutes = ["/dashboard", "/automation", "/admin", "/protected"];
+    setIsProtectedRoute(protectedRoutes.some(route => path.startsWith(route)));
+  }, []);
+
+  if (loading) {
+    return null;
+  }
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border">
@@ -32,36 +46,38 @@ export function Navbar() {
           </Link>
 
           {/* Desktop Navigation */}
-          <div className="hidden md:flex items-center space-x-8">
-            {navItems.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="text-sm font-medium text-foreground/80 hover:text-foreground transition-colors"
-              >
-                {item.label}
-              </Link>
-            ))}
-            {isAuthenticated ? (
-              <>
-                <Button asChild variant="outline">
-                  <Link href="/dashboard">Dashboard</Link>
-                </Button>
-                <Button onClick={logout} variant="ghost">
-                  Logout
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button asChild variant="outline">
-                  <Link href="/login">Login</Link>
-                </Button>
-                <Button asChild>
-                  <Link href="/signup">Get Started</Link>
-                </Button>
-              </>
-            )}
-          </div>
+          {!isProtectedRoute && (
+            <div className="hidden md:flex items-center space-x-8">
+              {navItems.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="text-sm font-medium text-foreground/80 hover:text-foreground transition-colors"
+                >
+                  {item.label}
+                </Link>
+              ))}
+              {isAuthenticated ? (
+                <>
+                  <Button asChild variant="outline">
+                    <Link href="/dashboard">Dashboard</Link>
+                  </Button>
+                  <Button onClick={logout} variant="ghost">
+                    Logout
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button asChild variant="outline">
+                    <Link href="/login">Login</Link>
+                  </Button>
+                  <Button asChild>
+                    <Link href="/signup">Get Started</Link>
+                  </Button>
+                </>
+              )}
+            </div>
+          )}
 
           {/* Mobile Menu Button */}
           <button
@@ -78,50 +94,52 @@ export function Navbar() {
         </div>
 
         {/* Mobile Menu */}
-        <div
-          className={cn(
-            "md:hidden transition-all duration-300 ease-in-out overflow-hidden",
-            mobileMenuOpen ? "max-h-96 opacity-100" : "max-h-0 opacity-0"
-          )}
-        >
-          <div className="py-4 space-y-4">
-            {navItems.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="block text-base font-medium text-foreground/80 hover:text-foreground transition-colors"
-                onClick={() => setMobileMenuOpen(false)}
-              >
-                {item.label}
-              </Link>
-            ))}
-            {isAuthenticated ? (
-              <>
-                <Button asChild variant="outline" className="w-full">
-                  <Link href="/dashboard" onClick={() => setMobileMenuOpen(false)}>
-                    Dashboard
-                  </Link>
-                </Button>
-                <Button onClick={logout} variant="ghost" className="w-full">
-                  Logout
-                </Button>
-              </>
-            ) : (
-              <>
-                <Button asChild variant="outline" className="w-full">
-                  <Link href="/login" onClick={() => setMobileMenuOpen(false)}>
-                    Login
-                  </Link>
-                </Button>
-                <Button asChild className="w-full">
-                  <Link href="/signup" onClick={() => setMobileMenuOpen(false)}>
-                    Get Started
-                  </Link>
-                </Button>
-              </>
+        {!isProtectedRoute && (
+          <div
+            className={cn(
+              "md:hidden transition-all duration-300 ease-in-out overflow-hidden",
+              mobileMenuOpen ? "max-h-96 opacity-100" : "max-h-0 opacity-0"
             )}
+          >
+            <div className="py-4 space-y-4">
+              {navItems.map((item) => (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className="block text-base font-medium text-foreground/80 hover:text-foreground transition-colors"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  {item.label}
+                </Link>
+              ))}
+              {isAuthenticated ? (
+                <>
+                  <Button asChild variant="outline" className="w-full">
+                    <Link href="/dashboard" onClick={() => setMobileMenuOpen(false)}>
+                      Dashboard
+                    </Link>
+                  </Button>
+                  <Button onClick={logout} variant="ghost" className="w-full">
+                    Logout
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button asChild variant="outline" className="w-full">
+                    <Link href="/login" onClick={() => setMobileMenuOpen(false)}>
+                      Login
+                    </Link>
+                  </Button>
+                  <Button asChild className="w-full">
+                    <Link href="/signup" onClick={() => setMobileMenuOpen(false)}>
+                      Get Started
+                    </Link>
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </nav>
   );

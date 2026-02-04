@@ -1,15 +1,13 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq';
-import { Job } from 'bullmq';
+import { Injectable } from '@nestjs/common';
 import { AutomationService } from './automation.service';
 
-@Processor('automation')
-export class AutomationProcessor extends WorkerHost {
-  constructor(private automationService: AutomationService) {
-    super();
-  }
+@Injectable()
+export class AutomationProcessor {
+  constructor(private automationService: AutomationService) {}
 
-  async process(job: Job<any, any, string>): Promise<any> {
-    const { jobId } = job.data;
+  // Placeholder processor for migration away from Bull. Call
+  // `processAutomation(jobId)` from your chosen runner when ready.
+  async processAutomation(jobId: string) {
     await this.automationService.processJob(jobId);
   }
 }

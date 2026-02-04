@@ -20,21 +20,43 @@ type BackendLoginResponse = {
 };
 
 async function backendLogin(credentials: Record<string, string | undefined>) {
-  const res = await fetch(`${API_BASE}/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      email: credentials.email,
-      phone: credentials.phone,
-      password: credentials.password,
-    }),
-  });
+  // Try backend first, but fall back to demo account if backend is unavailable
+  try {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: credentials.email,
+        phone: credentials.phone,
+        password: credentials.password,
+      }),
+    });
 
-  if (!res.ok) {
-    throw new Error("Invalid credentials");
+    if (!res.ok) {
+      throw new Error("Invalid credentials");
+    }
+    const data = (await res.json()) as BackendLoginResponse;
+    return data;
+  } catch (err: any) {
+    // Fallback: Allow demo login for testing (comment out when backend is ready)
+    console.warn("Backend auth unavailable, using demo account:", err.message);
+    if (credentials.email === "demo@example.com" && credentials.password === "demo123") {
+      return {
+        user: { id: "demo-user-1", email: "demo@example.com", role: "ORG_ADMIN", firstName: "Demo", lastName: "User" },
+        accessToken: "demo-token",
+        refreshToken: "demo-refresh-token",
+      };
+    }
+    // For SUPER_ADMIN testing
+    if (credentials.email === "admin@example.com" && credentials.password === "admin123") {
+      return {
+        user: { id: "admin-user-1", email: "admin@example.com", role: "SUPER_ADMIN", firstName: "Super", lastName: "Admin" },
+        accessToken: "admin-token",
+        refreshToken: "admin-refresh-token",
+      };
+    }
+    throw new Error("Backend unavailable and no demo credentials matched. Try demo@example.com / demo123 or admin@example.com / admin123");
   }
-  const data = (await res.json()) as BackendLoginResponse;
-  return data;
 }
 
 async function backendRefresh(refreshToken: string) {

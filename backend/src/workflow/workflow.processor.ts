@@ -1,15 +1,13 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq';
-import { Job } from 'bullmq';
+import { Injectable } from '@nestjs/common';
 import { WorkflowExecutionService } from './workflow-execution.service';
 
-@Processor('workflow')
-export class WorkflowProcessor extends WorkerHost {
-  constructor(private executionService: WorkflowExecutionService) {
-    super();
-  }
+@Injectable()
+export class WorkflowProcessor {
+  constructor(private executionService: WorkflowExecutionService) {}
 
-  async process(job: Job<any, any, string>): Promise<any> {
-    const { executionId } = job.data;
+  // Placeholder processor: when migrating to Supabase-based jobs,
+  // call `processExecution(executionId)` from whichever runner you use.
+  async processExecution(executionId: string) {
     await this.executionService.executeWorkflow(executionId);
   }
 }

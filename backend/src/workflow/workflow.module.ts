@@ -1,5 +1,5 @@
 import { Module, forwardRef } from '@nestjs/common';
-import { BullModule } from '@nestjs/bullmq';
+// import { BullModule } from '@nestjs/bullmq'; // Disabled: Using Supabase instead
 import { WorkflowService } from './workflow.service';
 import { WorkflowExecutionService } from './workflow-execution.service';
 import { WorkflowController } from './workflow.controller';
@@ -13,9 +13,9 @@ import { WorkflowProcessor } from './workflow.processor';
     PrismaModule,
     AiModule,
     CommunicationModule,
-    BullModule.registerQueue({
-      name: 'workflow',
-    }),
+    // BullModule.registerQueue({
+    //   name: 'workflow',
+    // }),
   ],
   controllers: [WorkflowController],
   providers: [WorkflowService, WorkflowExecutionService, WorkflowProcessor],

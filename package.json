@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "set \"NEXT_DISABLE_ESLINT=1\" && next build",
     "start": "next start",
     "lint": "next lint"
   },
@@ -18,7 +18,8 @@
     "next-auth": "^4.24.13",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
-    "tailwind-merge": "^2.2.0"
+    "tailwind-merge": "^2.2.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

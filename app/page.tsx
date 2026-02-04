@@ -1,8 +1,7 @@
 "use client";
 
-import { Hero } from "@/components/hero";
+import dynamic from "next/dynamic";
 import { FeatureCard } from "@/components/feature-card";
-import { CTABlock } from "@/components/cta-block";
 import { motion } from "framer-motion";
 import {
   FileText,
@@ -14,6 +13,16 @@ import {
   Globe,
   TrendingUp,
 } from "lucide-react";
+
+// Lazy load Hero component
+const Hero = dynamic(() => import("@/components/hero").then(mod => ({ default: mod.Hero })), {
+  loading: () => <div className="h-96 bg-gradient-to-br from-primary/10 to-primary/5" />,
+});
+
+// Lazy load CTA component
+const CTABlock = dynamic(() => import("@/components/cta-block").then(mod => ({ default: mod.CTABlock })), {
+  loading: () => <div className="h-32 bg-muted" />,
+});
 
 export default function Home() {
   return (

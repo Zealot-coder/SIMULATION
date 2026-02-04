@@ -8,5 +8,8 @@ export const config = {
     "/projects/:path*",
     "/billing/:path*",
     "/admin/:path*",
+    // Protected routes under (protected) group
+    "/app/:path*",
+    "/dev/:path*",
   ],
 };

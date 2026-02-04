@@ -1,6 +1,6 @@
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { BullModule } from '@nestjs/bullmq';
+// import { BullModule } from '@nestjs/bullmq'; // Disabled: Using Supabase instead
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { RateLimitMiddleware } from './middleware/rate-limit.middleware';
@@ -24,18 +24,18 @@ import { AutomationModule } from './automation/automation.module';
       envFilePath: '.env',
     }),
     
-    // Redis/BullMQ
-    BullModule.forRootAsync({
-      imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => ({
-        connection: {
-          host: configService.get<string>('REDIS_HOST') || 'localhost',
-          port: configService.get<number>('REDIS_PORT') || 6379,
-          password: configService.get<string>('REDIS_PASSWORD'),
-        },
-      }),
-      inject: [ConfigService],
-    }),
+    // Redis/BullMQ - DISABLED (using Supabase instead)
+    // BullModule.forRootAsync({
+    //   imports: [ConfigModule],
+    //   useFactory: async (configService: ConfigService) => ({
+    //     connection: {
+    //       host: configService.get<string>('REDIS_HOST') || 'localhost',
+    //       port: configService.get<number>('REDIS_PORT') || 6379,
+    //       password: configService.get<string>('REDIS_PASSWORD'),
+    //     },
+    //   }),
+    //   inject: [ConfigService],
+    // }),
     
     // Core modules
     PrismaModule,

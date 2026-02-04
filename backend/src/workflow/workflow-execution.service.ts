@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkflowStatus, WorkflowStepStatus } from '@prisma/client';
-import { Queue } from 'bullmq';
-import { InjectQueue } from '@nestjs/bullmq';
+// import { Queue } from 'bullmq'; // Disabled: Using Supabase instead
+// import { InjectQueue } from '@nestjs/bullmq'; // Disabled
 import { AiService } from '../ai/ai.service';
 import { CommunicationService } from '../communication/communication.service';
 
@@ -10,7 +10,6 @@ import { CommunicationService } from '../communication/communication.service';
 export class WorkflowExecutionService {
   constructor(
     private prisma: PrismaService,
-    @InjectQueue('workflow') private workflowQueue: Queue,
     private aiService: AiService,
     private communicationService: CommunicationService,
   ) {}
@@ -35,10 +34,10 @@ export class WorkflowExecutionService {
       },
     });
 
-    // Queue workflow execution
-    await this.workflowQueue.add('execute-workflow', {
-      executionId: execution.id,
-    });
+    // Queue workflow execution - Disabled for Supabase
+    // await this.workflowQueue.add('execute-workflow', {
+    //   executionId: execution.id,
+    // });
 
     return execution;
   }
