@@ -23,9 +23,17 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+*.log
+
+# local db
+backend/.local-pgdata/
 
 # local env files
 .env*.local
+.env
+backend/.env
+backend/.env.local
+backend/.env.production
 
 # vercel
 .vercel
