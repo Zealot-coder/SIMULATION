@@ -5,19 +5,10 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { motion } from "framer-motion";
 import { Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { getDashboardRouteForRole, isDevRole } from "@/lib/dashboard";
 
 // Brand colors
 const BRAND_ORANGE = "#f97316";
-
-/**
- * Determines the correct dashboard route based on user role
- */
-function getDashboardRoute(role: string): string {
-  if (role === "OWNER" || role === "ADMIN") {
-    return "/dev/overview";
-  }
-  return "/app/overview";
-}
 
 /**
  * Loading animation component with brand styling
@@ -76,8 +67,8 @@ function LoadingState({ message }: { message: string }) {
  * Success state before redirect
  */
 function SuccessState({ role }: { role: string }) {
-  const dashboardRoute = getDashboardRoute(role);
-  const isAdmin = role === "OWNER" || role === "ADMIN";
+  const dashboardRoute = getDashboardRouteForRole(role);
+  const isAdmin = isDevRole(role);
 
   return (
     <motion.div
@@ -171,7 +162,7 @@ function AuthCallbackContent() {
     // If we have a session, redirect to appropriate dashboard
     if (session?.user) {
       const userRole = (session.user as any).role || "VIEWER";
-      const redirectRoute = getDashboardRoute(userRole);
+      const redirectRoute = getDashboardRouteForRole(userRole);
       
       // Short delay to show success state
       const timeout = setTimeout(() => {

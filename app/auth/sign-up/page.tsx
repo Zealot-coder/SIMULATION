@@ -50,7 +50,7 @@ export default function SignUpPage() {
       if (result?.error) {
         setError("Registration successful but sign in failed. Please try logging in.");
       } else {
-        router.push("/app/overview");
+        router.push("/auth/callback");
         router.refresh();
       }
     } catch (err: any) {
@@ -62,7 +62,7 @@ export default function SignUpPage() {
 
   function handleOAuth(provider: "google" | "github") {
     setLoading(true);
-    signIn(provider, { callbackUrl: "/app/overview" });
+    signIn(provider, { callbackUrl: "/auth/callback" });
   }
 
   return (

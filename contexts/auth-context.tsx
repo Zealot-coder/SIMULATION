@@ -3,9 +3,10 @@
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { useSession, signOut, signIn } from 'next-auth/react';
 import { useRouter, usePathname } from 'next/navigation';
+import { getDashboardRouteForRole, isDevRole } from '@/lib/dashboard';
 
 // User roles
-export type UserRole = 'OWNER' | 'ADMIN' | 'STAFF' | 'VIEWER';
+export type UserRole = 'SUPER_ADMIN' | 'ORG_ADMIN' | 'OPERATOR' | 'VIEWER' | 'OWNER' | 'ADMIN' | 'STAFF';
 
 // User interface with all fields
 export interface User {
@@ -39,15 +40,12 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // Helper to check if user is admin
 function isAdminRole(role?: UserRole): boolean {
-  return role === 'OWNER' || role === 'ADMIN';
+  return isDevRole(role);
 }
 
 // Helper to get dashboard route based on role
 export function getDashboardRoute(role?: UserRole): string {
-  if (isAdminRole(role)) {
-    return '/dev/overview';
-  }
-  return '/app/overview';
+  return getDashboardRouteForRole(role);
 }
 
 // Protected routes that require authentication
@@ -96,7 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Redirect non-admin users from admin routes
     if (isAdminRoute && user && !isAdminRole(user.role)) {
-      router.push('/app/overview');
+      router.push(getDashboardRouteForRole(user.role));
       return;
     }
   }, [user, loading, pathname, router, isAuthenticated]);
