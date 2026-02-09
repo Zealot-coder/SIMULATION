@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 import { getDashboardRouteForRole, isDevRole } from "@/lib/dashboard";
 
+const AUTH_SECRET = process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET || process.env.JWT_SECRET;
 const USER_PROTECTED_PATHS = ["/app", "/dashboard", "/account", "/settings"];
 const AUTH_PATHS = ["/login", "/signup", "/auth/sign-in", "/auth/sign-up"];
 
@@ -14,7 +15,7 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const token = await getToken({
     req: request,
-    secret: process.env.NEXTAUTH_SECRET,
+    secret: AUTH_SECRET,
   });
 
   const isAuthenticated = !!token;

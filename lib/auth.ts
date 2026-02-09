@@ -5,6 +5,11 @@ import type { NextAuthOptions, User } from "next-auth";
 
 // Build base API URL for server-side requests
 const API_BASE = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api/v1";
+const AUTH_SECRET = process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET || process.env.JWT_SECRET;
+const GOOGLE_OAUTH_ID = process.env.GOOGLE_CLIENT_ID || process.env.AUTH_GOOGLE_ID;
+const GOOGLE_OAUTH_SECRET = process.env.GOOGLE_CLIENT_SECRET || process.env.AUTH_GOOGLE_SECRET;
+const GITHUB_OAUTH_ID = process.env.GITHUB_ID || process.env.GITHUB_CLIENT_ID || process.env.AUTH_GITHUB_ID;
+const GITHUB_OAUTH_SECRET = process.env.GITHUB_SECRET || process.env.GITHUB_CLIENT_SECRET || process.env.AUTH_GITHUB_SECRET;
 
 // User roles type
 export type UserRole = 'SUPER_ADMIN' | 'ORG_ADMIN' | 'OPERATOR' | 'VIEWER';
@@ -61,44 +66,14 @@ async function backendLogin(credentials: Record<string, string | undefined>) {
     });
 
     if (!res.ok) {
-      throw new Error("Invalid credentials");
+      const payload = await res.json().catch(() => null);
+      throw new Error(payload?.message || "Invalid credentials");
     }
     const data = (await res.json()) as BackendLoginResponse;
     return data;
   } catch (err: any) {
-    // Fallback: Allow demo login for testing
-    console.warn("Backend auth unavailable, using demo account:", err.message);
-    if (credentials.email === "demo@example.com" && credentials.password === "demo123") {
-      return {
-        user: { 
-          id: "demo-user-1", 
-          email: "demo@example.com", 
-          role: "OPERATOR" as UserRole, 
-          firstName: "Demo", 
-          lastName: "User",
-          name: "Demo User",
-          avatar: undefined,
-        },
-        accessToken: "demo-token",
-        refreshToken: "demo-refresh-token",
-      };
-    }
-    if (credentials.email === "admin@example.com" && credentials.password === "admin123") {
-      return {
-        user: { 
-          id: "admin-user-1", 
-          email: "admin@example.com", 
-          role: "SUPER_ADMIN" as UserRole, 
-          firstName: "Super", 
-          lastName: "Admin",
-          name: "Super Admin",
-          avatar: undefined,
-        },
-        accessToken: "admin-token",
-        refreshToken: "admin-refresh-token",
-      };
-    }
-    throw new Error("Backend unavailable and no demo credentials matched. Try demo@example.com / demo123 or admin@example.com / admin123");
+    console.error("Backend login failed:", err?.message || err);
+    throw new Error(err?.message || "Unable to sign in at the moment. Please try again.");
   }
 }
 
@@ -150,11 +125,11 @@ const providers: NextAuthOptions["providers"] = [
   }),
 ];
 
-if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+if (GOOGLE_OAUTH_ID && GOOGLE_OAUTH_SECRET) {
   providers.push(
     Google({
-      clientId: process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      clientId: GOOGLE_OAUTH_ID,
+      clientSecret: GOOGLE_OAUTH_SECRET,
       authorization: {
         params: {
           prompt: "select_account",
@@ -165,11 +140,11 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   );
 }
 
-if (process.env.GITHUB_ID && process.env.GITHUB_SECRET) {
+if (GITHUB_OAUTH_ID && GITHUB_OAUTH_SECRET) {
   providers.push(
     GitHub({
-      clientId: process.env.GITHUB_ID,
-      clientSecret: process.env.GITHUB_SECRET,
+      clientId: GITHUB_OAUTH_ID,
+      clientSecret: GITHUB_OAUTH_SECRET,
     })
   );
 }
@@ -264,7 +239,7 @@ export const authOptions: NextAuthOptions = {
       }
     },
   },
-  secret: process.env.NEXTAUTH_SECRET,
+  secret: AUTH_SECRET,
 };
 
 export type { NextAuthOptions };

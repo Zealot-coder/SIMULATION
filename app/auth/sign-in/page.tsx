@@ -28,7 +28,11 @@ function SignInForm() {
       });
 
       if (result?.error) {
-        setError(result.error);
+        setError(
+          result.error === "Configuration"
+            ? "Authentication is not configured correctly. Please contact support."
+            : result.error
+        );
       } else if (result?.ok) {
         router.push(postAuthRedirect);
         router.refresh();
@@ -156,11 +160,6 @@ function SignInForm() {
             </Link>
           </div>
 
-          <div className="mt-6 p-4 bg-muted rounded-lg text-xs text-muted-foreground">
-            <p className="font-semibold text-foreground mb-1">Demo Credentials:</p>
-            <p>demo@example.com / demo123</p>
-            <p>admin@example.com / admin123</p>
-          </div>
         </div>
       </div>
     </div>

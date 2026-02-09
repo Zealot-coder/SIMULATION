@@ -6,6 +6,7 @@ import { Menu, X, User, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/auth-context";
+import { getDashboardRouteForRole } from "@/lib/dashboard";
 
 const navItems = [
   { href: "/", label: "Home" },
@@ -66,7 +67,7 @@ export function Navbar() {
               {isAuthenticated ? (
                 <div className="flex items-center gap-3">
                   <Link 
-                    href={user?.role === 'OWNER' || user?.role === 'ADMIN' ? '/dev/overview' : '/app/overview'}
+                    href={getDashboardRouteForRole(user?.role)}
                     className="flex items-center gap-2 text-sm font-medium text-foreground/80 hover:text-foreground transition-colors"
                   >
                     <User className="w-4 h-4" />
@@ -142,7 +143,7 @@ export function Navbar() {
                     <>
                       <Button asChild variant="outline" className="w-full justify-start" size="sm">
                         <Link 
-                          href={user?.role === 'OWNER' || user?.role === 'ADMIN' ? '/dev/overview' : '/app/overview'} 
+                          href={getDashboardRouteForRole(user?.role)} 
                           onClick={() => setMobileMenuOpen(false)}
                         >
                           <User className="w-4 h-4 mr-2" />

@@ -48,7 +48,11 @@ export default function SignUpPage() {
       });
 
       if (result?.error) {
-        setError("Registration successful but sign in failed. Please try logging in.");
+        setError(
+          result.error === "Configuration"
+            ? "Registration succeeded, but authentication is not configured correctly. Please contact support."
+            : "Registration successful but sign in failed. Please try logging in."
+        );
       } else {
         router.push("/auth/callback");
         router.refresh();
