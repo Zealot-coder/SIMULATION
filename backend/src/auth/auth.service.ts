@@ -48,7 +48,10 @@ export class AuthService {
         password: hashedPassword,
         firstName: dto.firstName,
         lastName: dto.lastName,
+        name: [dto.firstName, dto.lastName].filter(Boolean).join(' ') || undefined,
         role: dto.role || 'VIEWER',
+        isActive: true,
+        lastLogin: new Date(),
       },
     });
 
@@ -64,6 +67,8 @@ export class AuthService {
         phone: user.phone ?? undefined,
         firstName: user.firstName ?? undefined,
         lastName: user.lastName ?? undefined,
+        name: user.name ?? undefined,
+        avatar: user.avatar ?? undefined,
         role: user.role,
       },
     };
@@ -99,6 +104,12 @@ export class AuthService {
       }
     }
 
+    // Update last login timestamp
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { lastLogin: new Date() },
+    });
+
     const accessToken = this.generateToken(user.id);
     const refreshToken = await this.generateRefreshToken(user.id);
 
@@ -111,6 +122,8 @@ export class AuthService {
         phone: user.phone ?? undefined,
         firstName: user.firstName ?? undefined,
         lastName: user.lastName ?? undefined,
+        name: user.name ?? undefined,
+        avatar: user.avatar ?? undefined,
         role: user.role,
       },
     };
@@ -127,6 +140,12 @@ export class AuthService {
     return this.generateToken(userId);
   }
 
+  async generateTokensForOAuthUser(userData: any): Promise<{ accessToken: string; refreshToken: string }> {
+    const accessToken = this.generateToken(userData.id);
+    const refreshToken = await this.generateRefreshToken(userData.id);
+    return { accessToken, refreshToken };
+  }
+
   async validateUser(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -136,6 +155,7 @@ export class AuthService {
             organization: true,
           },
         },
+        oauthAccounts: true,
       },
     });
 
@@ -162,7 +182,7 @@ export class AuthService {
     return token;
   }
 
-  async refreshAccessToken(refreshToken: string): Promise<{ accessToken: string; refreshToken: string }> {
+  async refreshAccessToken(refreshToken: string): Promise<{ accessToken: string; refreshToken: string; user: any }> {
     const tokenRecord = await this.prisma.refreshToken.findUnique({
       where: { token: refreshToken },
       include: { user: true },
@@ -172,8 +192,8 @@ export class AuthService {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
-    if (!tokenRecord.user.isActive) {
-      throw new UnauthorizedException('User account is inactive');
+    if (!tokenRecord.user || !tokenRecord.user.isActive) {
+      throw new UnauthorizedException('User account is inactive or not found');
     }
 
     // Revoke old token
@@ -186,7 +206,28 @@ export class AuthService {
     const accessToken = this.generateToken(tokenRecord.userId);
     const newRefreshToken = await this.generateRefreshToken(tokenRecord.userId);
 
-    return { accessToken, refreshToken: newRefreshToken };
+    const user = await this.prisma.user.findUnique({
+      where: { id: tokenRecord.userId },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    return { 
+      accessToken, 
+      refreshToken: newRefreshToken,
+      user: {
+        id: user.id,
+        email: user.email ?? undefined,
+        phone: user.phone ?? undefined,
+        firstName: user.firstName ?? undefined,
+        lastName: user.lastName ?? undefined,
+        name: user.name ?? undefined,
+        avatar: user.avatar ?? undefined,
+        role: user.role,
+      }
+    };
   }
 
   async revokeRefreshToken(refreshToken: string): Promise<void> {
@@ -200,4 +241,3 @@ export class AuthService {
     return require('crypto').randomBytes(32).toString('hex');
   }
 }
-

@@ -2,12 +2,27 @@ import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 
+// Role hierarchy for permission checking
+const ROLE_HIERARCHY: Record<string, number> = {
+  SUPER_ADMIN: 4,
+  ORG_ADMIN: 3,
+  OPERATOR: 2,
+  VIEWER: 1,
+  OWNER: 4, // Legacy support
+  ADMIN: 3, // Legacy support
+  STAFF: 2, // Legacy support
+};
+
 /**
  * Protected routes layout.
  * - Redirects unauthenticated users to /auth/sign-in
- * - Blocks non-SUPER_ADMIN users from accessing /dev/* routes
+ * - Blocks non-admin users from accessing /dev/* routes
  */
-export default async function ProtectedLayout({ children, params }: { children: React.ReactNode; params?: any }) {
+export default async function ProtectedLayout({ 
+  children 
+}: { 
+  children: React.ReactNode;
+}) {
   const session: any = await getServerSession(authOptions as any);
 
   // Not authenticated → redirect to sign-in
@@ -15,13 +30,11 @@ export default async function ProtectedLayout({ children, params }: { children: 
     redirect("/auth/sign-in");
   }
 
-  // Check if user is trying to access /dev and doesn't have SUPER_ADMIN role
-  // Note: This is a simple check. For full path-based checks, use pathname from usePathname() in a client component
-  // OR derive it from params if available. Here we do a simple role check that applies to /dev/* routes.
-  const role = (session.user as any).role;
-  if (params && params.path && Array.isArray(params.path) && params.path[0] === "dev" && role !== "SUPER_ADMIN") {
-    // Non-super-admin trying to access /dev → redirect to /app/overview
-    redirect("/app/overview");
+  const userRole = (session.user.role as string) || "VIEWER";
+
+  // Check if user role is valid
+  if (!ROLE_HIERARCHY[userRole]) {
+    redirect("/auth/sign-in?error=invalid_role");
   }
 
   return <>{children}</>;

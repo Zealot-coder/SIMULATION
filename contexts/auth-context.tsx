@@ -1,166 +1,145 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { apiClient } from '@/lib/api-client';
-import { useRouter } from 'next/navigation';
+import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
+import { useSession, signOut, signIn } from 'next-auth/react';
+import { useRouter, usePathname } from 'next/navigation';
 
-interface User {
+// User roles
+export type UserRole = 'OWNER' | 'ADMIN' | 'STAFF' | 'VIEWER';
+
+// User interface with all fields
+export interface User {
   id: string;
   email?: string;
   phone?: string;
   firstName?: string;
   lastName?: string;
-  role: string;
+  name?: string;
+  avatar?: string;
+  role: UserRole;
+  lastLogin?: string;
+  createdAt?: string;
 }
 
+// Auth context type
 interface AuthContextType {
   user: User | null;
-  token: string | null;
-  refreshToken: string | null;
   loading: boolean;
-  login: (email?: string, phone?: string, password?: string) => Promise<void>;
-  register: (data: {
-    email?: string;
-    phone?: string;
-    password?: string;
-    firstName?: string;
-    lastName?: string;
-  }) => Promise<void>;
-  logout: () => void;
-  refreshAccessToken: () => Promise<void>;
+  error: string | null;
   isAuthenticated: boolean;
+  isAdmin: boolean;
+  
+  // Auth methods
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => void;
+  clearError: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Helper to check if user is admin
+function isAdminRole(role?: UserRole): boolean {
+  return role === 'OWNER' || role === 'ADMIN';
+}
+
+// Helper to get dashboard route based on role
+export function getDashboardRoute(role?: UserRole): string {
+  if (isAdminRole(role)) {
+    return '/dev/overview';
+  }
+  return '/app/overview';
+}
+
+// Protected routes that require authentication
+const PROTECTED_ROUTES = ['/app', '/dev', '/dashboard', '/account', '/settings'];
+
+// Admin-only routes
+const ADMIN_ROUTES = ['/dev'];
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-  const [refreshToken, setRefreshToken] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const { data: session, status } = useSession();
+  const [error, setError] = useState<string | null>(null);
   const router = useRouter();
+  const pathname = usePathname();
+  
+  const loading = status === 'loading';
+  const isAuthenticated = !!session?.user;
+  
+  // Convert NextAuth session user to our User type
+  const user: User | null = session?.user ? {
+    id: (session.user as any).id || '',
+    email: session.user.email || undefined,
+    name: session.user.name || undefined,
+    firstName: (session.user as any).firstName || undefined,
+    lastName: (session.user as any).lastName || undefined,
+    avatar: session.user.image || (session.user as any).avatar || undefined,
+    role: (session.user as any).role || 'VIEWER',
+  } : null;
 
+  // Handle route protection
   useEffect(() => {
-    // Check for existing tokens on mount
-    const storedToken = localStorage.getItem('auth_token');
-    const storedRefreshToken = localStorage.getItem('refresh_token');
+    if (loading) return;
+
+    const isProtectedRoute = PROTECTED_ROUTES.some(route => 
+      pathname?.startsWith(route)
+    );
     
-    if (storedToken && storedRefreshToken) {
-      setToken(storedToken);
-      setRefreshToken(storedRefreshToken);
-      apiClient.setToken(storedToken);
-      
-      // Validate token with backend
-      apiClient.get('/auth/me')
-        .then((response) => {
-          setUser(response.data);
-        })
-        .catch(() => {
-          // Token invalid, try refresh
-          if (storedRefreshToken) {
-            refreshAccessToken();
-          } else {
-            localStorage.removeItem('auth_token');
-            localStorage.removeItem('refresh_token');
-          }
-        });
-    }
-    setLoading(false);
-  }, []);
+    const isAdminRoute = ADMIN_ROUTES.some(route => 
+      pathname?.startsWith(route)
+    );
 
-  const refreshAccessToken = async () => {
-    const storedRefreshToken = localStorage.getItem('refresh_token');
-    if (!storedRefreshToken) {
-      throw new Error('No refresh token available');
+    // Redirect unauthenticated users from protected routes
+    if (isProtectedRoute && !isAuthenticated) {
+      router.push('/auth/sign-in?redirect=' + encodeURIComponent(pathname || '/'));
+      return;
     }
 
+    // Redirect non-admin users from admin routes
+    if (isAdminRoute && user && !isAdminRole(user.role)) {
+      router.push('/app/overview');
+      return;
+    }
+  }, [user, loading, pathname, router, isAuthenticated]);
+
+  const login = async (email: string, password: string) => {
+    setError(null);
     try {
-      const response = await apiClient.post('/auth/refresh', {
-        refreshToken: storedRefreshToken,
+      const result = await signIn('credentials', {
+        email,
+        password,
+        redirect: false,
       });
-      
-      const { accessToken, refreshToken: newRefreshToken } = response.data;
-      localStorage.setItem('auth_token', accessToken);
-      localStorage.setItem('refresh_token', newRefreshToken);
-      setToken(accessToken);
-      setRefreshToken(newRefreshToken);
-      apiClient.setToken(accessToken);
-    } catch (error: any) {
-      // Refresh failed, logout
-      logout();
-      throw error;
-    }
-  };
 
-  const login = async (email?: string, phone?: string, password?: string) => {
-    try {
-      const response = await apiClient.login({ email, phone, password });
-      localStorage.setItem('auth_token', response.accessToken);
-      localStorage.setItem('refresh_token', response.refreshToken);
-      setToken(response.accessToken);
-      setRefreshToken(response.refreshToken);
-      apiClient.setToken(response.accessToken);
-      setUser(response.user);
-      router.push('/dashboard');
-    } catch (error: any) {
-      throw error;
-    }
-  };
-
-  const register = async (data: {
-    email?: string;
-    phone?: string;
-    password?: string;
-    firstName?: string;
-    lastName?: string;
-  }) => {
-    try {
-      const response = await apiClient.register(data);
-      localStorage.setItem('auth_token', response.accessToken);
-      localStorage.setItem('refresh_token', response.refreshToken);
-      setToken(response.accessToken);
-      setRefreshToken(response.refreshToken);
-      apiClient.setToken(response.accessToken);
-      setUser(response.user);
-      router.push('/dashboard');
-    } catch (error: any) {
-      throw error;
-    }
-  };
-
-  const logout = async () => {
-    const storedRefreshToken = localStorage.getItem('refresh_token');
-    if (storedRefreshToken) {
-      try {
-        await apiClient.post('/auth/logout', { refreshToken: storedRefreshToken });
-      } catch (error) {
-        // Ignore logout errors
+      if (result?.error) {
+        setError(result.error);
+        throw new Error(result.error);
       }
+    } catch (error: any) {
+      const message = error.message || 'Login failed';
+      setError(message);
+      throw error;
     }
-    
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('refresh_token');
-    apiClient.setToken(null);
-    setToken(null);
-    setRefreshToken(null);
-    setUser(null);
-    router.push('/login');
+  };
+
+  const logout = () => {
+    signOut({ callbackUrl: '/auth/sign-in' });
+  };
+
+  const clearError = () => setError(null);
+
+  const value: AuthContextType = {
+    user,
+    loading,
+    error,
+    isAuthenticated,
+    isAdmin: isAdminRole(user?.role),
+    login,
+    logout,
+    clearError,
   };
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        token,
-        refreshToken,
-        loading,
-        login,
-        register,
-        logout,
-        refreshAccessToken,
-        isAuthenticated: !!user,
-      }}
-    >
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );
@@ -173,4 +152,3 @@ export function useAuth() {
   }
   return context;
 }
-

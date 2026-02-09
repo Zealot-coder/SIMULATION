@@ -6,6 +6,22 @@ import type { NextAuthOptions, User } from "next-auth";
 // Build base API URL for server-side requests
 const API_BASE = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api/v1";
 
+// User roles type
+export type UserRole = 'SUPER_ADMIN' | 'ORG_ADMIN' | 'OPERATOR' | 'VIEWER';
+
+// Extended user type
+interface ExtendedUser extends User {
+  id: string;
+  role: UserRole;
+  firstName?: string;
+  lastName?: string;
+  name?: string;
+  avatar?: string;
+  accessToken: string;
+  refreshToken: string;
+  organizationId?: string;
+}
+
 type BackendLoginResponse = {
   user: {
     id: string;
@@ -13,14 +29,26 @@ type BackendLoginResponse = {
     phone?: string;
     firstName?: string;
     lastName?: string;
-    role: string;
+    name?: string;
+    avatar?: string;
+    role: UserRole;
+    organizationId?: string;
   };
   accessToken: string;
   refreshToken: string;
 };
 
+/**
+ * Determine dashboard route based on user role
+ */
+export function getDashboardRoute(role: UserRole): string {
+  if (role === 'SUPER_ADMIN') {
+    return '/dev/overview';
+  }
+  return '/app/overview';
+}
+
 async function backendLogin(credentials: Record<string, string | undefined>) {
-  // Try backend first, but fall back to demo account if backend is unavailable
   try {
     const res = await fetch(`${API_BASE}/auth/login`, {
       method: "POST",
@@ -38,19 +66,34 @@ async function backendLogin(credentials: Record<string, string | undefined>) {
     const data = (await res.json()) as BackendLoginResponse;
     return data;
   } catch (err: any) {
-    // Fallback: Allow demo login for testing (comment out when backend is ready)
+    // Fallback: Allow demo login for testing
     console.warn("Backend auth unavailable, using demo account:", err.message);
     if (credentials.email === "demo@example.com" && credentials.password === "demo123") {
       return {
-        user: { id: "demo-user-1", email: "demo@example.com", role: "ORG_ADMIN", firstName: "Demo", lastName: "User" },
+        user: { 
+          id: "demo-user-1", 
+          email: "demo@example.com", 
+          role: "OPERATOR" as UserRole, 
+          firstName: "Demo", 
+          lastName: "User",
+          name: "Demo User",
+          avatar: null,
+        },
         accessToken: "demo-token",
         refreshToken: "demo-refresh-token",
       };
     }
-    // For SUPER_ADMIN testing
     if (credentials.email === "admin@example.com" && credentials.password === "admin123") {
       return {
-        user: { id: "admin-user-1", email: "admin@example.com", role: "SUPER_ADMIN", firstName: "Super", lastName: "Admin" },
+        user: { 
+          id: "admin-user-1", 
+          email: "admin@example.com", 
+          role: "SUPER_ADMIN" as UserRole, 
+          firstName: "Super", 
+          lastName: "Admin",
+          name: "Super Admin",
+          avatar: null,
+        },
         accessToken: "admin-token",
         refreshToken: "admin-refresh-token",
       };
@@ -59,15 +102,23 @@ async function backendLogin(credentials: Record<string, string | undefined>) {
   }
 }
 
-async function backendRefresh(refreshToken: string) {
-  const res = await fetch(`${API_BASE}/auth/refresh`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ refreshToken }),
-  });
-  if (!res.ok) return null;
-  const data = (await res.json()) as { accessToken: string; refreshToken: string };
-  return data;
+async function backendRegister(data: { email: string; password: string; firstName?: string; lastName?: string }) {
+  try {
+    const res = await fetch(`${API_BASE}/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.message || "Registration failed");
+    }
+    return await res.json() as BackendLoginResponse;
+  } catch (err: any) {
+    console.warn("Backend registration failed:", err.message);
+    throw err;
+  }
 }
 
 // Build providers list conditionally to avoid runtime errors when env vars are missing
@@ -80,20 +131,20 @@ const providers: NextAuthOptions["providers"] = [
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
-        if (!credentials) return null;
+        if (!credentials?.email || !credentials?.password) return null;
         const data = await backendLogin(credentials);
-        const user: User & {
-          accessToken: string;
-          refreshToken: string;
-          role?: string;
-        } = {
-          ...data.user,
-          name: [data.user.firstName, data.user.lastName].filter(Boolean).join(" ") || undefined,
+        const user: ExtendedUser = {
+          id: data.user.id,
           email: data.user.email,
+          name: data.user.name || [data.user.firstName, data.user.lastName].filter(Boolean).join(" ") || data.user.email,
+          firstName: data.user.firstName,
+          lastName: data.user.lastName,
+          avatar: data.user.avatar,
+          role: data.user.role,
+          organizationId: data.user.organizationId,
           accessToken: data.accessToken,
           refreshToken: data.refreshToken,
-          role: data.user.role,
-        } as any;
+        };
         return user;
       },
   }),
@@ -106,11 +157,8 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
       authorization: {
         params: {
-          // Force account chooser so users can pick among Google accounts
           prompt: "select_account",
-          // The following are common defaults; keep if you need refresh tokens
-          // access_type: "offline",
-          // response_type: "code",
+          scope: "openid email profile",
         },
       },
     })
@@ -130,19 +178,27 @@ export const authOptions: NextAuthOptions = {
   session: { strategy: "jwt" },
   providers,
   callbacks: {
-    async jwt({ token, user, trigger, session }) {
+    async signIn({ user, account, profile }) {
+      // Allow OAuth sign-ins - the backend will handle user creation/upsert
+      return true;
+    },
+    async jwt({ token, user, trigger, session, account }) {
       // Initial sign in
       if (user) {
+        const extendedUser = user as ExtendedUser;
         token.user = {
-          id: (user as any).id,
-          email: (user as any).email,
-          phone: (user as any).phone,
-          firstName: (user as any).firstName,
-          lastName: (user as any).lastName,
-          role: (user as any).role,
+          id: extendedUser.id,
+          email: extendedUser.email,
+          name: extendedUser.name,
+          firstName: extendedUser.firstName,
+          lastName: extendedUser.lastName,
+          avatar: extendedUser.avatar,
+          role: extendedUser.role,
+          organizationId: extendedUser.organizationId,
         };
-        token.accessToken = (user as any).accessToken;
-        token.refreshToken = (user as any).refreshToken;
+        token.accessToken = extendedUser.accessToken;
+        token.refreshToken = extendedUser.refreshToken;
+        token.provider = account?.provider || "credentials";
         return token;
       }
 
@@ -152,9 +208,11 @@ export const authOptions: NextAuthOptions = {
         return token;
       }
 
-      // Optionally refresh token here if needed
-      if (token.refreshToken && !token.accessTokenExpiredAt) {
-        // If your backend provides expiry, you can track it. Otherwise, rely on API 401s to trigger refresh server-side.
+      // Ensure user object exists on token for subsequent requests
+      if (!token.user) {
+        token.user = {
+          role: "VIEWER",
+        };
       }
 
       return token;
@@ -162,18 +220,52 @@ export const authOptions: NextAuthOptions = {
     async session({ session, token }) {
       (session as any).accessToken = token.accessToken;
       (session as any).refreshToken = token.refreshToken;
+      (session as any).provider = token.provider;
+      
+      // Ensure user exists with role
+      const userData = (token.user as any) || {};
       session.user = {
         ...(session.user || {}),
-        ...(token.user as any),
+        ...userData,
+        role: userData.role || "VIEWER",
       } as any;
       return session;
     },
+    async redirect({ url, baseUrl }) {
+      // If URL is relative, prepend base URL
+      if (url.startsWith("/")) {
+        // Check if it's a dashboard redirect
+        if (url === "/" || url === "/auth/sign-in" || url === "/auth/sign-up") {
+          // Will be handled by client-side auth context
+          return `${baseUrl}/auth/callback`;
+        }
+        return `${baseUrl}${url}`;
+      }
+      
+      // If URL is on the same origin, allow it
+      if (url.startsWith(baseUrl)) {
+        return url;
+      }
+      
+      // Default redirect to base URL
+      return baseUrl;
+    },
   },
   pages: {
-    signIn: "/login",
+    signIn: "/auth/sign-in",
+    error: "/auth/sign-in",
+    newUser: "/app/overview",
+  },
+  events: {
+    async signIn({ user, account, isNewUser }) {
+      console.log(`User signed in: ${user.email} via ${account?.provider}`);
+      if (isNewUser) {
+        console.log(`New user created: ${user.email}`);
+      }
+    },
   },
   secret: process.env.NEXTAUTH_SECRET,
 };
 
 export type { NextAuthOptions };
-
+export { backendRegister };

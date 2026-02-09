@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Menu, X } from "lucide-react";
+import { Menu, X, User, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/auth-context";
@@ -17,20 +17,25 @@ const navItems = [
 
 export function Navbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { isAuthenticated, logout, loading } = useAuth();
-
-  // Don't show navbar with auth buttons on protected routes
-  // Check if we're on a protected route by looking at the current path
+  const { isAuthenticated, user, logout, loading } = useAuth();
   const [isProtectedRoute, setIsProtectedRoute] = useState(false);
 
   useEffect(() => {
     const path = window.location.pathname;
-    const protectedRoutes = ["/dashboard", "/automation", "/admin", "/protected"];
+    const protectedRoutes = ["/dashboard", "/automation", "/admin", "/protected", "/app", "/dev"];
     setIsProtectedRoute(protectedRoutes.some(route => path.startsWith(route)));
   }, []);
 
   if (loading) {
-    return null;
+    return (
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 border-b border-border">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <div className="w-8 h-8 bg-primary rounded-lg animate-pulse" />
+          </div>
+        </div>
+      </nav>
+    );
   }
 
   return (
@@ -38,11 +43,11 @@ export function Navbar() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
           {/* Logo */}
-          <Link href="/" className="flex items-center space-x-2" aria-label="AI Automation Platform Home">
+          <Link href="/" className="flex items-center space-x-2" aria-label="SIMULATION Home">
             <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center" aria-hidden="true">
-              <span className="text-primary-foreground font-bold text-lg">AI</span>
+              <span className="text-primary-foreground font-bold text-lg">S</span>
             </div>
-            <span className="font-semibold text-lg">Automation</span>
+            <span className="font-semibold text-lg hidden sm:block">SIMULATION</span>
           </Link>
 
           {/* Desktop Navigation */}
@@ -57,31 +62,50 @@ export function Navbar() {
                   {item.label}
                 </Link>
               ))}
+              
               {isAuthenticated ? (
-                <>
-                  <Button asChild variant="outline">
-                    <Link href="/dashboard">Dashboard</Link>
-                  </Button>
-                  <Button onClick={logout} variant="ghost">
+                <div className="flex items-center gap-3">
+                  <Link 
+                    href={user?.role === 'OWNER' || user?.role === 'ADMIN' ? '/dev/overview' : '/app/overview'}
+                    className="flex items-center gap-2 text-sm font-medium text-foreground/80 hover:text-foreground transition-colors"
+                  >
+                    <User className="w-4 h-4" />
+                    {user?.name || user?.email || 'Dashboard'}
+                  </Link>
+                  <Button onClick={logout} variant="ghost" size="sm" className="gap-2">
+                    <LogOut className="w-4 h-4" />
                     Logout
                   </Button>
-                </>
+                </div>
               ) : (
-                <>
-                  <Button asChild variant="outline">
-                    <Link href="/login">Login</Link>
+                <div className="flex items-center gap-3">
+                  <Button asChild variant="outline" size="sm">
+                    <Link href="/auth/sign-in">Login</Link>
                   </Button>
-                  <Button asChild>
-                    <Link href="/signup">Get Started</Link>
+                  <Button asChild size="sm">
+                    <Link href="/auth/sign-up">Get Started</Link>
                   </Button>
-                </>
+                </div>
               )}
+            </div>
+          )}
+
+          {/* Protected Route - Show just user menu */}
+          {isProtectedRoute && isAuthenticated && (
+            <div className="hidden md:flex items-center gap-3">
+              <span className="text-sm text-muted-foreground">
+                {user?.name || user?.email}
+              </span>
+              <Button onClick={logout} variant="ghost" size="sm" className="gap-2">
+                <LogOut className="w-4 h-4" />
+                Logout
+              </Button>
             </div>
           )}
 
           {/* Mobile Menu Button */}
           <button
-            className="md:hidden p-2"
+            className="md:hidden p-2 rounded-lg hover:bg-muted transition-colors"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             aria-label="Toggle menu"
           >
@@ -94,54 +118,69 @@ export function Navbar() {
         </div>
 
         {/* Mobile Menu */}
-        {!isProtectedRoute && (
-          <div
-            className={cn(
-              "md:hidden transition-all duration-300 ease-in-out overflow-hidden",
-              mobileMenuOpen ? "max-h-96 opacity-100" : "max-h-0 opacity-0"
+        <div
+          className={cn(
+            "md:hidden transition-all duration-300 ease-in-out overflow-hidden",
+            mobileMenuOpen ? "max-h-96 opacity-100" : "max-h-0 opacity-0"
+          )}
+        >
+          <div className="py-4 space-y-4 border-t">
+            {!isProtectedRoute && (
+              <>
+                {navItems.map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className="block text-base font-medium text-foreground/80 hover:text-foreground transition-colors"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+                <div className="pt-4 border-t space-y-2">
+                  {isAuthenticated ? (
+                    <>
+                      <Button asChild variant="outline" className="w-full justify-start" size="sm">
+                        <Link 
+                          href={user?.role === 'OWNER' || user?.role === 'ADMIN' ? '/dev/overview' : '/app/overview'} 
+                          onClick={() => setMobileMenuOpen(false)}
+                        >
+                          <User className="w-4 h-4 mr-2" />
+                          Dashboard
+                        </Link>
+                      </Button>
+                      <Button onClick={logout} variant="ghost" className="w-full justify-start" size="sm">
+                        <LogOut className="w-4 h-4 mr-2" />
+                        Logout
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Button asChild variant="outline" className="w-full" size="sm">
+                        <Link href="/auth/sign-in" onClick={() => setMobileMenuOpen(false)}>
+                          Login
+                        </Link>
+                      </Button>
+                      <Button asChild className="w-full" size="sm">
+                        <Link href="/auth/sign-up" onClick={() => setMobileMenuOpen(false)}>
+                          Get Started
+                        </Link>
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </>
             )}
-          >
-            <div className="py-4 space-y-4">
-              {navItems.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className="block text-base font-medium text-foreground/80 hover:text-foreground transition-colors"
-                  onClick={() => setMobileMenuOpen(false)}
-                >
-                  {item.label}
-                </Link>
-              ))}
-              {isAuthenticated ? (
-                <>
-                  <Button asChild variant="outline" className="w-full">
-                    <Link href="/dashboard" onClick={() => setMobileMenuOpen(false)}>
-                      Dashboard
-                    </Link>
-                  </Button>
-                  <Button onClick={logout} variant="ghost" className="w-full">
-                    Logout
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Button asChild variant="outline" className="w-full">
-                    <Link href="/login" onClick={() => setMobileMenuOpen(false)}>
-                      Login
-                    </Link>
-                  </Button>
-                  <Button asChild className="w-full">
-                    <Link href="/signup" onClick={() => setMobileMenuOpen(false)}>
-                      Get Started
-                    </Link>
-                  </Button>
-                </>
-              )}
-            </div>
+            
+            {isProtectedRoute && isAuthenticated && (
+              <Button onClick={logout} variant="ghost" className="w-full justify-start" size="sm">
+                <LogOut className="w-4 h-4 mr-2" />
+                Logout
+              </Button>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </nav>
   );
 }
-

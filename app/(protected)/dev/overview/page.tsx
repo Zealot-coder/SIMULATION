@@ -1,281 +1,177 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { AppShell } from "@/components/app-shell";
-import { KpiCard } from "@/components/kpi-card";
-import { StatusBadge } from "@/components/ui/badge";
+import { useSession } from "next-auth/react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { DataTable, Column } from "@/components/data-table";
-import { 
-  Activity, 
-  AlertTriangle, 
-  Clock, 
+import {
+  Activity,
+  Building2,
+  AlertTriangle,
+  TrendingUp,
   Users,
-  RefreshCw,
   Server,
-  Database,
-  Wifi,
-  ChevronRight,
-  Terminal,
-  Download
+  ArrowRight,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import Link from "next/link";
 
-// Mock data for demonstration
-interface TenantData {
-  orgId: string;
-  orgName: string;
-  events: number;
-  failures: number;
-  lastActive: string;
-  status: "healthy" | "warning" | "critical";
-}
+// Mock platform data for MVP
+const mockPlatformStats = {
+  totalOrganizations: 47,
+  activeOrganizations: 42,
+  totalEvents24h: 12547,
+  failedWorkflows24h: 23,
+  queueLag: "120ms",
+  errorRate: "0.18%",
+};
 
-interface SystemLog {
-  id: string;
-  timestamp: string;
-  level: "info" | "warning" | "error";
-  message: string;
-  service: string;
-}
-
-const mockTenants: (TenantData & { id: string })[] = [
-  { id: "1", orgId: "org_001", orgName: "City Clinic", events: 1247, failures: 2, lastActive: "2 min ago", status: "healthy" },
-  { id: "2", orgId: "org_002", orgName: "Sunrise Pharmacy", events: 892, failures: 12, lastActive: "5 min ago", status: "warning" },
-  { id: "3", orgId: "org_003", orgName: "Hope NGO", events: 456, failures: 0, lastActive: "15 min ago", status: "healthy" },
-  { id: "4", orgId: "org_004", orgName: "Metro School", events: 2341, failures: 45, lastActive: "1 min ago", status: "critical" },
-  { id: "5", orgId: "org_005", orgName: "Local Shop", events: 123, failures: 1, lastActive: "1 hour ago", status: "healthy" },
+const mockTopOrganizations = [
+  { id: "1", name: "TechCorp Ltd", events24h: 2341, users: 12, status: "active" },
+  { id: "2", name: "ShopNow Africa", events24h: 1856, users: 8, status: "active" },
+  { id: "3", name: "MediCare Clinic", events24h: 923, users: 5, status: "active" },
+  { id: "4", name: "FarmFresh Co", events24h: 0, users: 3, status: "inactive" },
 ];
 
-const mockLogs: SystemLog[] = [
-  { id: "1", timestamp: "14:32:01", level: "error", message: "Database connection timeout after 30s", service: "database" },
-  { id: "2", timestamp: "14:31:45", level: "warning", message: "High memory usage detected: 85%", service: "system" },
-  { id: "3", timestamp: "14:30:12", level: "info", message: "Workflow engine processed 47 events", service: "worker" },
-  { id: "4", timestamp: "14:29:55", level: "info", message: "Payment webhook received from Stripe", service: "payments" },
-  { id: "5", timestamp: "14:28:30", level: "warning", message: "API rate limit approaching for tenant org_002", service: "api" },
-];
-
-const tenantColumns: Column<TenantData>[] = [
-  { key: "orgName", title: "Organization" },
-  { key: "events", title: "Events (24h)", render: (row: TenantData) => row.events.toLocaleString() },
-  { key: "failures", title: "Failures", render: (row: TenantData) => (
-    <span className={cn(row.failures > 10 && "text-red-600 font-medium")}>
-      {row.failures}
-    </span>
-  )},
-  { key: "lastActive", title: "Last Active" },
-  { key: "status", title: "Status", render: (row: TenantData) => (
-    <StatusBadge 
-      status={row.status === "healthy" ? "success" : row.status === "warning" ? "warning" : "failed"} 
-    />
-  )},
-];
-
-const logColumns: Column<SystemLog>[] = [
-  { key: "timestamp", title: "Time", width: "80px" },
-  { key: "level", title: "Level", width: "80px", render: (row: SystemLog) => (
-    <span className={cn(
-      "text-xs font-medium px-2 py-0.5 rounded-full",
-      row.level === "error" && "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
-      row.level === "warning" && "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
-      row.level === "info" && "bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400",
-    )}>
-      {row.level}
-    </span>
-  )},
-  { key: "service", title: "Service", width: "100px" },
-  { key: "message", title: "Message" },
+const mockRecentFailures = [
+  { id: "1", workflow: "Payment Handler", organization: "TechCorp Ltd", error: "API timeout", time: "2 min ago" },
+  { id: "2", workflow: "Order Processor", organization: "ShopNow Africa", error: "Database connection", time: "5 min ago" },
+  { id: "3", workflow: "Notification Service", organization: "MediCare Clinic", error: "Rate limit exceeded", time: "12 min ago" },
 ];
 
 export default function DevOverviewPage() {
-  const [loading, setLoading] = useState(true);
-  const [systemData, setSystemData] = useState({
-    errorRate: 0.02,
-    queueLag: { avg_ms: 145 },
-    eventsPerMinute: 1247,
-    noisyTenants: mockTenants.filter(t => t.failures > 5),
-  });
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setLoading(false);
-    }, 1000);
-    return () => clearTimeout(timer);
-  }, []);
-
-  const handleRefresh = () => {
-    setLoading(true);
-    setTimeout(() => setLoading(false), 500);
-  };
+  const { data: session } = useSession();
+  const user = session?.user as any;
 
   return (
-    <AppShell>
-      <div className="space-y-6">
-        {/* Page Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-bold tracking-tight">Developer Console</h1>
-              <StatusBadge status="success" className="text-[10px]">System Healthy</StatusBadge>
-            </div>
-            <p className="text-sm text-muted-foreground mt-1">
-              Monitor system health, tenant activity, and debug issues.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="gap-2" onClick={handleRefresh}>
-              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-              Refresh
-            </Button>
-            <Button variant="outline" size="sm" className="gap-2">
-              <Download className="h-4 w-4" />
-              Export Logs
-            </Button>
-          </div>
-        </div>
+    <div className="space-y-6">
+      {/* Header */}
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-100">Platform Overview</h1>
+        <p className="text-slate-400">
+          System health and cross-tenant metrics
+        </p>
+      </div>
 
-        {/* System Health Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <KpiCard
-            title="Error Rate"
-            value={`${(systemData.errorRate * 100).toFixed(1)}%`}
-            delta="-0.5%"
-            trend="down"
-            subtitle="last hour"
-            icon={AlertTriangle}
-            loading={loading}
-          />
-          <KpiCard
-            title="Queue Lag"
-            value={`${systemData.queueLag.avg_ms} ms`}
-            delta="+12ms"
-            trend="up"
-            subtitle="average"
-            icon={Clock}
-            loading={loading}
-          />
-          <KpiCard
-            title="Events/min"
-            value={systemData.eventsPerMinute.toLocaleString()}
-            delta="+8%"
-            trend="up"
-            subtitle="throughput"
-            icon={Activity}
-            loading={loading}
-          />
-          <KpiCard
-            title="Active Tenants"
-            value={mockTenants.length.toString()}
-            subtitle="currently online"
-            icon={Users}
-            loading={loading}
-          />
-        </div>
-
-        {/* Service Status */}
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Service Status</CardTitle>
-            <CardDescription>Health check of core services</CardDescription>
+      {/* Stats Grid */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <Card className="bg-slate-900 border-slate-800">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-slate-300">Organizations</CardTitle>
+            <Building2 className="h-4 w-4 text-slate-400" />
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              {[
-                { name: "API Gateway", icon: Wifi, status: "operational", latency: "24ms" },
-                { name: "Database", icon: Database, status: "operational", latency: "12ms" },
-                { name: "Worker Queue", icon: Server, status: "degraded", latency: "156ms" },
-                { name: "AI Service", icon: Terminal, status: "operational", latency: "245ms" },
-              ].map((service) => (
-                <div 
-                  key={service.name}
-                  className="flex items-center gap-3 p-3 rounded-lg border bg-card"
-                >
+            <div className="text-2xl font-bold text-slate-100">{mockPlatformStats.totalOrganizations}</div>
+            <p className="text-xs text-green-400">
+              {mockPlatformStats.activeOrganizations} active
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-slate-900 border-slate-800">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-slate-300">Events (24h)</CardTitle>
+            <Activity className="h-4 w-4 text-slate-400" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-slate-100">
+              {mockPlatformStats.totalEvents24h.toLocaleString()}
+            </div>
+            <p className="text-xs text-green-400">
+              <TrendingUp className="inline w-3 h-3 mr-1" />
+              +8% vs yesterday
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-slate-900 border-slate-800">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-slate-300">Queue Lag</CardTitle>
+            <Server className="h-4 w-4 text-slate-400" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-slate-100">{mockPlatformStats.queueLag}</div>
+            <p className="text-xs text-green-400">Healthy</p>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-slate-900 border-slate-800">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium text-slate-300">Error Rate</CardTitle>
+            <AlertTriangle className="h-4 w-4 text-slate-400" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-slate-100">{mockPlatformStats.errorRate}</div>
+            <p className="text-xs text-amber-400">
+              {mockPlatformStats.failedWorkflows24h} failures today
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Two Column Layout */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        {/* Top Organizations */}
+        <Card className="bg-slate-900 border-slate-800">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-slate-100">Top Organizations</CardTitle>
+            <Button variant="ghost" size="sm" className="text-slate-300 hover:text-slate-100" asChild>
+              <Link href="/dev/organizations">
+                View all <ArrowRight className="ml-1 w-4 h-4" />
+              </Link>
+            </Button>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {mockTopOrganizations.map((org) => (
+                <div key={org.id} className="flex items-center gap-4">
                   <div className={cn(
-                    "p-2 rounded-md",
-                    service.status === "operational" ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-amber-100 dark:bg-amber-900/30"
-                  )}>
-                    <service.icon className={cn(
-                      "h-4 w-4",
-                      service.status === "operational" ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"
-                    )} />
-                  </div>
+                    "w-2 h-2 rounded-full",
+                    org.status === "active" ? "bg-green-500" : "bg-slate-600"
+                  )} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{service.name}</p>
-                    <div className="flex items-center gap-2">
-                      <span className={cn(
-                        "text-xs",
-                        service.status === "operational" ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"
-                      )}>
-                        {service.status}
-                      </span>
-                      <span className="text-xs text-muted-foreground">• {service.latency}</span>
-                    </div>
+                    <p className="text-sm font-medium text-slate-200 truncate">{org.name}</p>
+                    <p className="text-xs text-slate-400">{org.users} users</p>
                   </div>
+                  <span className="text-xs text-slate-400">{org.events24h.toLocaleString()} events</span>
                 </div>
               ))}
             </div>
           </CardContent>
         </Card>
 
-        {/* Main Content Grid */}
-        <div className="grid gap-6 lg:grid-cols-2">
-          {/* Tenant Activity */}
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-base">Tenant Activity</CardTitle>
-                  <CardDescription>Cross-tenant event and error metrics</CardDescription>
+        {/* Recent Failures */}
+        <Card className="bg-slate-900 border-slate-800">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-slate-100">Recent Failures</CardTitle>
+            <Button variant="ghost" size="sm" className="text-slate-300 hover:text-slate-100" asChild>
+              <Link href="/dev/failures">
+                View all <ArrowRight className="ml-1 w-4 h-4" />
+              </Link>
+            </Button>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {mockRecentFailures.map((failure) => (
+                <div key={failure.id} className="flex items-start gap-4">
+                  <XCircle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-200">{failure.workflow}</p>
+                    <p className="text-xs text-slate-400">{failure.organization}</p>
+                    <p className="text-xs text-destructive">{failure.error}</p>
+                  </div>
+                  <span className="text-xs text-slate-500">{failure.time}</span>
                 </div>
-                <Button variant="ghost" size="sm" className="gap-1">
-                  View All
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <DataTable
-                columns={tenantColumns}
-                rows={mockTenants}
-                loading={loading}
-                emptyState={{
-                  title: "No tenants",
-                  description: "No tenant data available"
-                }}
-              />
-            </CardContent>
-          </Card>
-
-          {/* System Logs */}
-          <Card>
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-base">System Logs</CardTitle>
-                  <CardDescription>Recent events and errors</CardDescription>
-                </div>
-                <Button variant="ghost" size="sm" className="gap-1">
-                  View All
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <DataTable
-                columns={logColumns}
-                rows={mockLogs}
-                loading={loading}
-                maxItems={5}
-                emptyState={{
-                  title: "No logs",
-                  description: "No system logs available"
-                }}
-              />
-            </CardContent>
-          </Card>
-        </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
       </div>
-    </AppShell>
+    </div>
   );
+}
+
+// Helper function
+function cn(...classes: (string | undefined | boolean)[]) {
+  return classes.filter(Boolean).join(" ");
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { FeatureCard } from "@/components/feature-card";
 import { KpiCard } from "@/components/kpi-card";
 import { cn } from "@/lib/utils";
@@ -200,19 +201,19 @@ function CTABlock() {
           with invisible automation.
         </p>
         <div className="flex flex-col sm:flex-row gap-4 justify-center animate-fade-up" style={{ animationDelay: "200ms" }}>
-          <a 
-            href="/use-cases"
+          <Link 
+            href="/auth/sign-up"
             className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-lg bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-colors"
           >
             Get Started
             <ArrowRight className="h-5 w-5" />
-          </a>
-          <a 
+          </Link>
+          <Link 
             href="/automation"
             className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-lg border bg-background font-medium hover:bg-muted transition-colors"
           >
             Learn More
-          </a>
+          </Link>
         </div>
       </div>
     </section>

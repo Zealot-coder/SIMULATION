@@ -15,9 +15,10 @@ datasource db {
 // ============================================
 
 enum UserRole {
-  OWNER
-  STAFF
-  VIEWER
+  OWNER       // Platform owner/admin - can access /dev
+  ADMIN       // Organization admin - full access within org
+  STAFF       // Staff member - limited access within org
+  VIEWER      // Read-only access
 }
 
 model User {
@@ -27,8 +28,11 @@ model User {
   password  String?  // nullable for OAuth/phone-only auth
   firstName String?
   lastName  String?
+  name      String?  // Full name for display
+  avatar    String?  // Profile image URL from OAuth
   role      UserRole @default(VIEWER)
   isActive  Boolean  @default(true)
+  lastLogin DateTime? // Last successful login timestamp
   
   // Organization membership
   organizationMemberships OrganizationMember[]
@@ -36,12 +40,16 @@ model User {
   // Refresh tokens
   refreshTokens RefreshToken[]
   
+  // OAuth accounts (Google, GitHub, etc.)
+  oauthAccounts OAuthAccount[]
+  
   // Audit
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   
   @@index([email])
   @@index([phone])
+  @@index([role])
 }
 
 model RefreshToken {
@@ -60,6 +68,35 @@ model RefreshToken {
   @@index([userId])
   @@index([token])
   @@index([expiresAt])
+}
+
+// OAuth Provider Accounts (for tracking which providers a user has connected)
+model OAuthAccount {
+  id                String   @id @default(cuid())
+  userId            String
+  provider          String   // "google", "github", etc.
+  providerAccountId String   // ID from the provider
+  
+  // OAuth tokens (optional - we use our own JWT)
+  accessToken       String?
+  refreshToken      String?
+  expiresAt         DateTime?
+  
+  // Provider data
+  email             String?
+  name              String?
+  avatar            String?
+  
+  // Relationships
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Audit
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@index([provider])
 }
 
 // ============================================

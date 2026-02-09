@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy } from 'passport-github2';
 import { ConfigService } from '@nestjs/config';
@@ -6,6 +6,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
 export class GitHubStrategy extends PassportStrategy(Strategy, 'github') {
+  private readonly logger = new Logger(GitHubStrategy.name);
+
   constructor(
     private configService: ConfigService,
     private prisma: PrismaService,
@@ -24,34 +26,123 @@ export class GitHubStrategy extends PassportStrategy(Strategy, 'github') {
     profile: any,
     done: (err: any, user?: any) => void,
   ): Promise<any> {
-    const { id, username, emails, displayName } = profile;
+    const { id, username, emails, displayName, photos } = profile;
     
     // GitHub may not always provide email in profile
     const email = emails?.[0]?.value || `${username}@users.noreply.github.com`;
-    
-    // Find or create user
-    let user = await this.prisma.user.findFirst({
-      where: {
-        OR: [
-          { email },
-          { email: `${username}@users.noreply.github.com` },
-        ],
-      },
-    });
+    const avatar = photos?.[0]?.value;
+    const fullName = displayName || username;
 
-    if (!user) {
-      // Create new user
-      user = await this.prisma.user.create({
-        data: {
-          email,
-          firstName: displayName || username,
-          role: 'VIEWER',
-          // No password for OAuth users
-        },
+    try {
+      // Upsert user with transaction
+      const user = await this.prisma.$transaction(async (tx) => {
+        // Find existing user by email or GitHub username pattern
+        let existingUser = await tx.user.findFirst({
+          where: {
+            OR: [
+              { email },
+              { email: `${username}@users.noreply.github.com` },
+            ],
+          },
+          include: { oauthAccounts: true },
+        });
+
+        if (existingUser) {
+          // User exists - update info
+          this.logger.log(`Existing user signing in with GitHub: ${email}`);
+          
+          existingUser = await tx.user.update({
+            where: { id: existingUser.id },
+            data: {
+              firstName: fullName || existingUser.firstName,
+              name: fullName || existingUser.name,
+              avatar: avatar || existingUser.avatar,
+              lastLogin: new Date(),
+              isActive: true,
+            },
+            include: { oauthAccounts: true },
+          });
+
+          // Check if OAuth account exists
+          const existingOAuth = existingUser.oauthAccounts.find(
+            (oa) => oa.provider === 'github' && oa.providerAccountId === id
+          );
+
+          if (!existingOAuth) {
+            // Link new OAuth provider
+            await tx.oAuthAccount.create({
+              data: {
+                userId: existingUser.id,
+                provider: 'github',
+                providerAccountId: id,
+                email,
+                name: fullName,
+                avatar,
+              },
+            });
+            this.logger.log(`Linked GitHub OAuth to existing user: ${email}`);
+          } else {
+            // Update OAuth account info
+            await tx.oAuthAccount.update({
+              where: { id: existingOAuth.id },
+              data: {
+                email,
+                name: fullName,
+                avatar,
+                updatedAt: new Date(),
+              },
+            });
+          }
+
+          return existingUser;
+        } else {
+          // Create new user
+          this.logger.log(`Creating new user from GitHub OAuth: ${email}`);
+          
+          const newUser = await tx.user.create({
+            data: {
+              email,
+              firstName: fullName,
+              name: fullName,
+              avatar,
+              role: 'VIEWER',
+              isActive: true,
+              lastLogin: new Date(),
+              oauthAccounts: {
+                create: {
+                  provider: 'github',
+                  providerAccountId: id,
+                  email,
+                  name: fullName,
+                  avatar,
+                },
+              },
+            },
+            include: { oauthAccounts: true },
+          });
+
+          this.logger.log(`Created new user: ${newUser.id} with GitHub OAuth`);
+          return newUser;
+        }
       });
-    }
 
-    return user;
+      // Return user data for JWT generation
+      const result = {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        name: user.name,
+        avatar: user.avatar,
+        role: user.role,
+        provider: 'github',
+        providerAccountId: id,
+      };
+
+      done(null, result);
+    } catch (error) {
+      this.logger.error('GitHub OAuth validation error:', error);
+      done(error, false);
+    }
   }
 }
-

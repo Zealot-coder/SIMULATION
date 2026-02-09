@@ -33,11 +33,22 @@ export class AuthController {
   @UseGuards(AuthGuard('google'))
   async googleAuthCallback(@Req() req: Request, @Res() res: Response) {
     const user = req.user as any;
-    const token = await this.authService.generateTokenForUser(user.id);
     
-    // Redirect to frontend with token
+    // Generate tokens for the user
+    const tokens = await this.authService.generateTokensForOAuthUser(user);
+    
+    // Redirect to frontend with tokens and user info
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    res.redirect(`${frontendUrl}/auth/callback?token=${token}&provider=google`);
+    const redirectUrl = new URL(`${frontendUrl}/auth/callback`);
+    
+    // Add tokens and user info to query params
+    redirectUrl.searchParams.set('token', tokens.accessToken);
+    redirectUrl.searchParams.set('refreshToken', tokens.refreshToken);
+    redirectUrl.searchParams.set('provider', 'google');
+    redirectUrl.searchParams.set('userId', user.id);
+    redirectUrl.searchParams.set('role', user.role);
+    
+    res.redirect(redirectUrl.toString());
   }
 
   @Get('github')
@@ -50,11 +61,21 @@ export class AuthController {
   @UseGuards(AuthGuard('github'))
   async githubAuthCallback(@Req() req: Request, @Res() res: Response) {
     const user = req.user as any;
-    const token = await this.authService.generateTokenForUser(user.id);
     
-    // Redirect to frontend with token
+    // Generate tokens for the user
+    const tokens = await this.authService.generateTokensForOAuthUser(user);
+    
+    // Redirect to frontend with tokens and user info
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    res.redirect(`${frontendUrl}/auth/callback?token=${token}&provider=github`);
+    const redirectUrl = new URL(`${frontendUrl}/auth/callback`);
+    
+    redirectUrl.searchParams.set('token', tokens.accessToken);
+    redirectUrl.searchParams.set('refreshToken', tokens.refreshToken);
+    redirectUrl.searchParams.set('provider', 'github');
+    redirectUrl.searchParams.set('userId', user.id);
+    redirectUrl.searchParams.set('role', user.role);
+    
+    res.redirect(redirectUrl.toString());
   }
 
   @Post('refresh')
@@ -80,7 +101,11 @@ export class AuthController {
       phone: user.phone,
       firstName: user.firstName,
       lastName: user.lastName,
+      name: user.name,
+      avatar: user.avatar,
       role: user.role,
+      lastLogin: user.lastLogin,
+      createdAt: user.createdAt,
       organizations: user.organizationMemberships?.map((m: any) => ({
         id: m.organization.id,
         name: m.organization.name,
@@ -89,4 +114,3 @@ export class AuthController {
     };
   }
 }
-

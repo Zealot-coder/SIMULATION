@@ -1,3 +1,7 @@
 {
-    "chatgpt.openOnStartup": true
+    "chatgpt.openOnStartup": true,
+    "kimi.enableNewConversationShortcut": true,
+    "kimi.executablePath": "C:\\Users\\Administrator\\.local\\bin\\kimi",
+    "kimi.alwaysExpandThinking": true,
+    "kimi.yoloMode": true
 }
