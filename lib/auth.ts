@@ -77,7 +77,7 @@ async function backendLogin(credentials: Record<string, string | undefined>) {
           firstName: "Demo", 
           lastName: "User",
           name: "Demo User",
-          avatar: null,
+          avatar: undefined,
         },
         accessToken: "demo-token",
         refreshToken: "demo-refresh-token",
@@ -92,7 +92,7 @@ async function backendLogin(credentials: Record<string, string | undefined>) {
           firstName: "Super", 
           lastName: "Admin",
           name: "Super Admin",
-          avatar: null,
+          avatar: undefined,
         },
         accessToken: "admin-token",
         refreshToken: "admin-refresh-token",
@@ -188,8 +188,8 @@ export const authOptions: NextAuthOptions = {
         const extendedUser = user as ExtendedUser;
         token.user = {
           id: extendedUser.id,
-          email: extendedUser.email,
-          name: extendedUser.name,
+          email: extendedUser.email ?? undefined,
+          name: extendedUser.name ?? undefined,
           firstName: extendedUser.firstName,
           lastName: extendedUser.lastName,
           avatar: extendedUser.avatar,
