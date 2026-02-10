@@ -194,6 +194,16 @@ function AuthCallbackContent() {
     return <SuccessState role={userRole} />;
   }
 
+  // If authentication failed and no session exists
+  if (status === "unauthenticated") {
+    return (
+      <ErrorState
+        message="We could not establish a session. Please sign in again."
+        onRetry={() => window.location.href = "/auth/sign-in"}
+      />
+    );
+  }
+
   // Default loading state
   return <LoadingState message="Completing sign in..." />;
 }

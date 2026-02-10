@@ -70,6 +70,7 @@ GITHUB_SECRET=<github-client-secret>
 
 ```env
 DATABASE_URL=postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require
+DIRECT_URL=postgresql://postgres.<project-ref>:<password>@db.<project-ref>.supabase.co:5432/postgres?sslmode=require
 FRONTEND_URL=https://<your-vercel-domain>
 JWT_SECRET=<strong-random-secret>
 JWT_EXPIRES_IN=7d
@@ -92,8 +93,22 @@ GITHUB_CALLBACK_URL=https://<your-backend-domain>/api/v1/auth/github/callback
 2. Select project.
 3. Go to `Project Settings -> Database`.
 4. Open `Connection string`.
-5. Copy `URI` for runtime pooler (`pooler.supabase.com:6543`).
-6. Put it in backend production `DATABASE_URL`.
+5. Copy `URI` for runtime pooler (`pooler.supabase.com:6543`) and set it as `DATABASE_URL`.
+6. Copy `URI` for direct connection (`db.<project-ref>.supabase.co:5432`) and set it as `DIRECT_URL`.
+
+### Run migrations on the backend host
+
+After setting `DIRECT_URL` on your backend host, run Prisma migrations once:
+
+```bash
+npx prisma migrate deploy
+```
+
+For Render, you can append it to your build command:
+
+```bash
+npm install --include=dev && npm run build && npx prisma migrate deploy
+```
 
 ### Secrets (`NEXTAUTH_SECRET`, `JWT_SECRET`)
 
