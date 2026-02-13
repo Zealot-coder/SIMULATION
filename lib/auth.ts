@@ -43,6 +43,18 @@ type BackendLoginResponse = {
   refreshToken: string;
 };
 
+type BackendMeResponse = {
+  id: string;
+  email?: string;
+  phone?: string;
+  firstName?: string;
+  lastName?: string;
+  name?: string;
+  avatar?: string;
+  role?: UserRole;
+  organizationId?: string;
+};
+
 /**
  * Determine dashboard route based on user role
  */
@@ -96,6 +108,27 @@ async function backendRegister(data: { email: string; password: string; firstNam
   }
 }
 
+async function backendUserFromAccessToken(accessToken: string) {
+  try {
+    const res = await fetch(`${API_BASE}/auth/me`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+
+    if (!res.ok) {
+      const payload = await res.json().catch(() => null);
+      throw new Error(payload?.message || "Invalid OAuth token");
+    }
+
+    return (await res.json()) as BackendMeResponse;
+  } catch (err: any) {
+    console.error("Backend OAuth token verification failed:", err?.message || err);
+    throw new Error(err?.message || "Unable to verify OAuth sign in.");
+  }
+}
+
 // Build providers list conditionally to avoid runtime errors when env vars are missing
 const providers: NextAuthOptions["providers"] = [
   Credentials({
@@ -122,6 +155,34 @@ const providers: NextAuthOptions["providers"] = [
         };
         return user;
       },
+  }),
+  Credentials({
+    id: "oauth-token",
+    name: "OAuth Token",
+    credentials: {
+      token: { label: "Access Token", type: "text" },
+      refreshToken: { label: "Refresh Token", type: "text" },
+    },
+    async authorize(credentials) {
+      const accessToken = credentials?.token;
+      if (!accessToken) return null;
+
+      const backendUser = await backendUserFromAccessToken(accessToken);
+      const user: ExtendedUser = {
+        id: backendUser.id,
+        email: backendUser.email,
+        name: backendUser.name || [backendUser.firstName, backendUser.lastName].filter(Boolean).join(" ") || backendUser.email,
+        firstName: backendUser.firstName,
+        lastName: backendUser.lastName,
+        avatar: backendUser.avatar,
+        role: backendUser.role || "VIEWER",
+        organizationId: backendUser.organizationId,
+        accessToken,
+        refreshToken: credentials?.refreshToken || "",
+      };
+
+      return user;
+    },
   }),
 ];
 

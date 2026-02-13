@@ -5,6 +5,8 @@ import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
+const PUBLIC_API_BASE = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
+
 // Separate component to handle search params
 function SignInForm() {
   const [email, setEmail] = useState("");
@@ -45,8 +47,13 @@ function SignInForm() {
   };
 
   const handleOAuthSignIn = (provider: "google" | "github") => {
+    if (!PUBLIC_API_BASE) {
+      setError("OAuth is not configured. Missing NEXT_PUBLIC_API_URL.");
+      return;
+    }
+
     setIsLoading(true);
-    signIn(provider, { callbackUrl: postAuthRedirect });
+    window.location.href = `${PUBLIC_API_BASE}/auth/${provider}`;
   };
 
   return (

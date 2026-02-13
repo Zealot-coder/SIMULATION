@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, Suspense } from "react";
+import { useEffect, Suspense, useRef, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
+import { useSession, signIn } from "next-auth/react";
 import { motion } from "framer-motion";
 import { Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import { getDashboardRouteForRole, isDevRole } from "@/lib/dashboard";
@@ -145,12 +145,53 @@ function AuthCallbackContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { data: session, status } = useSession();
+  const [oauthExchangeError, setOauthExchangeError] = useState<string | null>(null);
+  const [isExchangingToken, setIsExchangingToken] = useState(false);
+  const handledBackendToken = useRef(false);
+  const error = searchParams.get("error");
+  const backendAccessToken = searchParams.get("token");
+  const backendRefreshToken = searchParams.get("refreshToken");
 
   useEffect(() => {
-    const error = searchParams.get("error");
-    
+    if (!backendAccessToken || handledBackendToken.current) {
+      return;
+    }
+
+    handledBackendToken.current = true;
+    setIsExchangingToken(true);
+    setOauthExchangeError(null);
+
+    signIn("oauth-token", {
+      token: backendAccessToken,
+      refreshToken: backendRefreshToken || undefined,
+      redirect: false,
+      callbackUrl: "/auth/callback",
+    })
+      .then((result) => {
+        if (result?.error) {
+          setOauthExchangeError("Authentication with provider failed. Please try again.");
+          return;
+        }
+
+        // Drop sensitive query params from URL once session is set.
+        router.replace("/auth/callback");
+      })
+      .catch((err: any) => {
+        console.error("OAuth callback token exchange failed:", err?.message || err);
+        setOauthExchangeError("Authentication with provider failed. Please try again.");
+      })
+      .finally(() => {
+        setIsExchangingToken(false);
+      });
+  }, [backendAccessToken, backendRefreshToken, router]);
+
+  useEffect(() => {
     if (error) {
       console.error("OAuth error:", error);
+      return;
+    }
+
+    if (oauthExchangeError || isExchangingToken) {
       return;
     }
 
@@ -171,18 +212,21 @@ function AuthCallbackContent() {
       
       return () => clearTimeout(timeout);
     }
-  }, [searchParams, router, session, status]);
+  }, [error, oauthExchangeError, isExchangingToken, router, session, status]);
 
-  const error = searchParams.get("error");
+  const resolvedError =
+    oauthExchangeError ||
+    (error === "oauth_failed"
+      ? "Authentication with provider failed. Please try again."
+      : error
+      ? "An unexpected error occurred during sign in."
+      : null);
 
   // Show error state
-  if (error) {
+  if (resolvedError) {
     return (
       <ErrorState
-        message={error === "oauth_failed" 
-          ? "Authentication with provider failed. Please try again."
-          : "An unexpected error occurred during sign in."
-        }
+        message={resolvedError}
         onRetry={() => window.location.href = "/auth/sign-in"}
       />
     );
@@ -192,6 +236,10 @@ function AuthCallbackContent() {
   if (session?.user) {
     const userRole = (session.user as any).role || "VIEWER";
     return <SuccessState role={userRole} />;
+  }
+
+  if (backendAccessToken || isExchangingToken || status === "loading") {
+    return <LoadingState message="Completing sign in..." />;
   }
 
   // If authentication failed and no session exists

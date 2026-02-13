@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { apiClient } from "@/lib/api-client";
 
+const PUBLIC_API_BASE = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
+
 export default function SignUpPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -65,8 +67,13 @@ export default function SignUpPage() {
   }
 
   function handleOAuth(provider: "google" | "github") {
+    if (!PUBLIC_API_BASE) {
+      setError("OAuth is not configured. Missing NEXT_PUBLIC_API_URL.");
+      return;
+    }
+
     setLoading(true);
-    signIn(provider, { callbackUrl: "/auth/callback" });
+    window.location.href = `${PUBLIC_API_BASE}/auth/${provider}`;
   }
 
   return (

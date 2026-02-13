@@ -4,6 +4,8 @@ import { OverviewQuerySchema } from "@/lib/schemas/api";
 import { requireOrgAccess } from "@/lib/rbac";
 import * as sb from "@/lib/supabase-server";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(req: Request) {
   try {
     const url = new URL(req.url);

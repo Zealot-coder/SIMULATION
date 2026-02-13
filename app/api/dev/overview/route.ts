@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { requireRoleAtLeast } from "@/lib/rbac";
 import * as sb from "@/lib/supabase-server";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(req: Request) {
   try {
     // Only super admin can access developer console endpoints

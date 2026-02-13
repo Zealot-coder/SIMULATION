@@ -45,10 +45,10 @@ NEXTAUTH_URL=http://localhost:3000
 NEXTAUTH_SECRET=<local-secret>
 NEXT_PUBLIC_API_URL=http://localhost:3001/api/v1
 API_URL=http://localhost:3001/api/v1
-GOOGLE_CLIENT_ID=<optional-local-oauth-id>
-GOOGLE_CLIENT_SECRET=<optional-local-oauth-secret>
-GITHUB_ID=<optional-local-oauth-id>
-GITHUB_SECRET=<optional-local-oauth-secret>
+GOOGLE_CLIENT_ID=<optional-only-for-direct-nextauth-oauth>
+GOOGLE_CLIENT_SECRET=<optional-only-for-direct-nextauth-oauth>
+GITHUB_ID=<optional-only-for-direct-nextauth-oauth>
+GITHUB_SECRET=<optional-only-for-direct-nextauth-oauth>
 ```
 
 ## 3) Production values
@@ -60,17 +60,20 @@ NEXTAUTH_URL=https://<your-vercel-domain>
 NEXTAUTH_SECRET=<strong-random-secret>
 NEXT_PUBLIC_API_URL=https://<your-backend-domain>/api/v1
 API_URL=https://<your-backend-domain>/api/v1
-GOOGLE_CLIENT_ID=<google-client-id>
-GOOGLE_CLIENT_SECRET=<google-client-secret>
-GITHUB_ID=<github-client-id>
-GITHUB_SECRET=<github-client-secret>
+GOOGLE_CLIENT_ID=<optional-only-for-direct-nextauth-oauth>
+GOOGLE_CLIENT_SECRET=<optional-only-for-direct-nextauth-oauth>
+GITHUB_ID=<optional-only-for-direct-nextauth-oauth>
+GITHUB_SECRET=<optional-only-for-direct-nextauth-oauth>
 ```
 
 ### Backend production (your backend host env settings)
 
 ```env
 DATABASE_URL=postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres?pgbouncer=true&sslmode=require
+# Preferred for migrations when your host supports IPv6 egress:
 DIRECT_URL=postgresql://postgres.<project-ref>:<password>@db.<project-ref>.supabase.co:5432/postgres?sslmode=require
+# IPv4-safe fallback (Render-friendly) for migrations:
+# DIRECT_URL=postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres?sslmode=require
 FRONTEND_URL=https://<your-vercel-domain>
 JWT_SECRET=<strong-random-secret>
 JWT_EXPIRES_IN=7d
@@ -94,7 +97,9 @@ GITHUB_CALLBACK_URL=https://<your-backend-domain>/api/v1/auth/github/callback
 3. Go to `Project Settings -> Database`.
 4. Open `Connection string`.
 5. Copy `URI` for runtime pooler (`pooler.supabase.com:6543`) and set it as `DATABASE_URL`.
-6. Copy `URI` for direct connection (`db.<project-ref>.supabase.co:5432`) and set it as `DIRECT_URL`.
+6. Set `DIRECT_URL` to the direct connection URI (`db.<project-ref>.supabase.co:5432`) if your host supports IPv6.
+7. If your host cannot reach `db.<project-ref>.supabase.co` (Prisma `P1001`), use the session pooler URI (`pooler.supabase.com:5432`) as `DIRECT_URL`.
+8. URL-encode special characters in your password (`@`, `:`, `/`, `?`, `#`, `[`, `]`).
 
 ### Run migrations on the backend host
 
@@ -104,10 +109,26 @@ After setting `DIRECT_URL` on your backend host, run Prisma migrations once:
 npx prisma migrate deploy
 ```
 
-For Render, you can append it to your build command:
+For Render, use this build command (without migrations):
 
 ```bash
-npm install --include=dev && npm run build && npx prisma migrate deploy
+npm install --include=dev && npm run build
+```
+
+Then configure Render service commands as:
+
+```bash
+# Pre-Deploy Command
+npx prisma migrate deploy
+
+# Start Command
+npm run start:prod
+```
+
+If you do not use a Pre-Deploy Command, use this Start Command instead:
+
+```bash
+npx prisma migrate deploy && npm run start:prod
 ```
 
 ### Secrets (`NEXTAUTH_SECRET`, `JWT_SECRET`)
@@ -133,9 +154,12 @@ Generate one for NextAuth and another for backend JWT.
 2. Go to `APIs & Services -> Credentials`.
 3. Create or edit OAuth 2.0 Client ID (`Web application`).
 4. Add authorized redirect URIs:
+   `http://localhost:3001/api/v1/auth/google/callback`
+   `https://<your-backend-domain>/api/v1/auth/google/callback`
+5. Copy Client ID and Client Secret to backend env vars (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`).
+6. Only if you intentionally use direct NextAuth provider flow, also add:
    `http://localhost:3000/api/auth/callback/google`
    `https://<your-vercel-domain>/api/auth/callback/google`
-5. Copy Client ID and Client Secret to Vercel env vars.
 
 ### GitHub OAuth values
 
@@ -143,9 +167,12 @@ Generate one for NextAuth and another for backend JWT.
 2. Go to `Settings -> Developer settings -> OAuth Apps`.
 3. Create or edit the app.
 4. Set callback URLs:
+   `http://localhost:3001/api/v1/auth/github/callback`
+   `https://<your-backend-domain>/api/v1/auth/github/callback`
+5. Copy Client ID and Client Secret to backend env vars (`GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`).
+6. Only if you intentionally use direct NextAuth provider flow, also set:
    `http://localhost:3000/api/auth/callback/github`
    `https://<your-vercel-domain>/api/auth/callback/github`
-5. Copy Client ID and Client Secret to Vercel env vars (`GITHUB_ID`, `GITHUB_SECRET`).
 
 ## 5) Deployment order
 
@@ -160,4 +187,5 @@ Generate one for NextAuth and another for backend JWT.
 1. Using `localhost` values in production.
 2. Missing `API_URL` in Vercel (server auth can fail).
 3. Setting backend `FRONTEND_URL` to the wrong domain.
-4. Forgetting to redeploy after changing env vars.
+4. Mixing callback styles: backend OAuth uses `/api/v1/auth/<provider>/callback`, direct NextAuth uses `/api/auth/callback/<provider>`.
+5. Forgetting to redeploy after changing env vars.
