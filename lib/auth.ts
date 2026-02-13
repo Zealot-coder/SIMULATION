@@ -8,14 +8,29 @@ const LOCAL_API_BASE_URL = "http://localhost:3001/api/v1";
 const PROD_API_BASE_FALLBACK =
   (process.env.API_URL_FALLBACK || process.env.NEXT_PUBLIC_API_FALLBACK_URL || "https://simulation-cyww.onrender.com/api/v1").replace(/\/$/, "");
 
+function normalizeApiBase(url: string) {
+  const trimmed = url.replace(/\/$/, "");
+  if (!trimmed) return trimmed;
+
+  try {
+    const parsed = new URL(trimmed);
+    if (!parsed.pathname || parsed.pathname === "/") {
+      parsed.pathname = "/api/v1";
+    }
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return trimmed;
+  }
+}
+
 function isLocalApiUrl(url: string) {
   return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?/i.test(url);
 }
 
 // Build base API URL for server-side requests
 function getServerApiBase() {
-  const serverApi = (process.env.API_URL || "").replace(/\/$/, "");
-  const publicApi = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+  const serverApi = normalizeApiBase(process.env.API_URL || "");
+  const publicApi = normalizeApiBase(process.env.NEXT_PUBLIC_API_URL || "");
 
   if (serverApi) {
     if (process.env.NODE_ENV === "production" && isLocalApiUrl(serverApi)) {
@@ -31,7 +46,7 @@ function getServerApiBase() {
     return publicApi;
   }
 
-  return process.env.NODE_ENV === "production" ? PROD_API_BASE_FALLBACK : LOCAL_API_BASE_URL;
+  return process.env.NODE_ENV === "production" ? normalizeApiBase(PROD_API_BASE_FALLBACK) : LOCAL_API_BASE_URL;
 }
 
 const API_BASE = getServerApiBase();

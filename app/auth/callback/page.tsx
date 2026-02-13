@@ -169,7 +169,11 @@ function AuthCallbackContent() {
     })
       .then((result) => {
         if (result?.error) {
-          setOauthExchangeError("Authentication with provider failed. Please try again.");
+          const reason =
+            result.error === "CredentialsSignin"
+              ? "Session exchange failed. Verify API_URL/NEXT_PUBLIC_API_URL points to your backend /api/v1."
+              : `Session exchange failed (${result.error}).`;
+          setOauthExchangeError(reason);
           return;
         }
 
