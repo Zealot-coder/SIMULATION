@@ -4,9 +4,10 @@ import { Suspense, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { getPublicApiBaseUrl } from "@/lib/api-client";
 import { Eye, EyeOff } from "lucide-react";
 
-const PUBLIC_API_BASE = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
+const PUBLIC_API_BASE = getPublicApiBaseUrl();
 
 // Separate component to handle search params
 function SignInForm() {
@@ -49,11 +50,6 @@ function SignInForm() {
   };
 
   const handleOAuthSignIn = (provider: "google" | "github") => {
-    if (!PUBLIC_API_BASE) {
-      setError("OAuth is not configured. Missing NEXT_PUBLIC_API_URL.");
-      return;
-    }
-
     setIsLoading(true);
     window.location.href = `${PUBLIC_API_BASE}/auth/${provider}`;
   };

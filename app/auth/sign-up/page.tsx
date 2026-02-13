@@ -4,10 +4,10 @@ import { useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { apiClient } from "@/lib/api-client";
+import { apiClient, getPublicApiBaseUrl } from "@/lib/api-client";
 import { Eye, EyeOff } from "lucide-react";
 
-const PUBLIC_API_BASE = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
+const PUBLIC_API_BASE = getPublicApiBaseUrl();
 
 export default function SignUpPage() {
   const [email, setEmail] = useState("");
@@ -70,11 +70,6 @@ export default function SignUpPage() {
   }
 
   function handleOAuth(provider: "google" | "github") {
-    if (!PUBLIC_API_BASE) {
-      setError("OAuth is not configured. Missing NEXT_PUBLIC_API_URL.");
-      return;
-    }
-
     setLoading(true);
     window.location.href = `${PUBLIC_API_BASE}/auth/${provider}`;
   }

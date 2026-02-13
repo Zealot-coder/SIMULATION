@@ -4,8 +4,37 @@ import GitHub from "next-auth/providers/github";
 import type { NextAuthOptions, User } from "next-auth";
 import { isDevRole } from "@/lib/dashboard";
 
+const LOCAL_API_BASE_URL = "http://localhost:3001/api/v1";
+const PROD_API_BASE_FALLBACK =
+  (process.env.API_URL_FALLBACK || process.env.NEXT_PUBLIC_API_FALLBACK_URL || "https://simulation-cyww.onrender.com/api/v1").replace(/\/$/, "");
+
+function isLocalApiUrl(url: string) {
+  return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?/i.test(url);
+}
+
 // Build base API URL for server-side requests
-const API_BASE = (process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api/v1").replace(/\/$/, "");
+function getServerApiBase() {
+  const serverApi = (process.env.API_URL || "").replace(/\/$/, "");
+  const publicApi = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+
+  if (serverApi) {
+    if (process.env.NODE_ENV === "production" && isLocalApiUrl(serverApi)) {
+      return PROD_API_BASE_FALLBACK;
+    }
+    return serverApi;
+  }
+
+  if (publicApi) {
+    if (process.env.NODE_ENV === "production" && isLocalApiUrl(publicApi)) {
+      return PROD_API_BASE_FALLBACK;
+    }
+    return publicApi;
+  }
+
+  return process.env.NODE_ENV === "production" ? PROD_API_BASE_FALLBACK : LOCAL_API_BASE_URL;
+}
+
+const API_BASE = getServerApiBase();
 const AUTH_SECRET = process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET || process.env.JWT_SECRET;
 const GOOGLE_OAUTH_ID = process.env.GOOGLE_CLIENT_ID || process.env.AUTH_GOOGLE_ID;
 const GOOGLE_OAUTH_SECRET = process.env.GOOGLE_CLIENT_SECRET || process.env.AUTH_GOOGLE_SECRET;

@@ -16,7 +16,45 @@ export const createClient = () => {
 };
 
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
+const LOCAL_API_BASE_URL = "http://localhost:3001/api/v1";
+const PROD_API_BASE_FALLBACK =
+  (process.env.NEXT_PUBLIC_API_FALLBACK_URL || "https://simulation-cyww.onrender.com/api/v1").replace(/\/$/, "");
+
+function isLocalHost(hostname: string) {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
+function isLocalApiUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    return isLocalHost(parsed.hostname);
+  } catch {
+    return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?/i.test(url);
+  }
+}
+
+export function getPublicApiBaseUrl() {
+  const envUrl = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+
+  // During build/SSR, fall back to a remote URL in production to avoid localhost-only config.
+  if (typeof window === "undefined") {
+    if (envUrl) return envUrl;
+    return process.env.NODE_ENV === "production" ? PROD_API_BASE_FALLBACK : LOCAL_API_BASE_URL;
+  }
+
+  const browserIsLocal = isLocalHost(window.location.hostname);
+  if (envUrl) {
+    // If env points to localhost but browser is on a hosted domain, use production fallback.
+    if (isLocalApiUrl(envUrl) && !browserIsLocal) {
+      return PROD_API_BASE_FALLBACK;
+    }
+    return envUrl;
+  }
+
+  return browserIsLocal ? LOCAL_API_BASE_URL : PROD_API_BASE_FALLBACK;
+}
+
+const API_BASE_URL = getPublicApiBaseUrl();
 
 class ApiClient {
   private baseUrl: string;
@@ -62,7 +100,7 @@ class ApiClient {
       });
     } catch (err: any) {
       const error = new Error(
-        "Unable to reach backend API. Check NEXT_PUBLIC_API_URL and confirm backend is running."
+        `Unable to reach backend API at ${this.baseUrl}. Check NEXT_PUBLIC_API_URL and backend CORS configuration.`
       );
       (error as any).status = 0;
       (error as any).response = { data: { message: error.message } };
