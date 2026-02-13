@@ -150,7 +150,7 @@ export function ProtectedRoute({
  */
 export function AdminRoute({ children, fallback }: { children: ReactNode; fallback?: ReactNode }) {
   return (
-    <ProtectedRoute requiredRole={["OWNER", "ADMIN"]} fallback={fallback}>
+    <ProtectedRoute requiredRole={["OWNER", "SUPER_ADMIN"]} fallback={fallback}>
       {children}
     </ProtectedRoute>
   );
@@ -161,7 +161,7 @@ export function AdminRoute({ children, fallback }: { children: ReactNode; fallba
  */
 export function StaffRoute({ children, fallback }: { children: ReactNode; fallback?: ReactNode }) {
   return (
-    <ProtectedRoute requiredRole={["OWNER", "ADMIN", "STAFF"]} fallback={fallback}>
+    <ProtectedRoute requiredRole={["OWNER", "ADMIN", "STAFF", "ORG_ADMIN", "OPERATOR"]} fallback={fallback}>
       {children}
     </ProtectedRoute>
   );

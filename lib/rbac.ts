@@ -1,18 +1,38 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 
-export type Role = "SUPER_ADMIN" | "ORG_ADMIN" | "OPERATOR" | "VIEWER";
+export type Role =
+  | "SUPER_ADMIN"
+  | "ORG_ADMIN"
+  | "OPERATOR"
+  | "VIEWER"
+  | "OWNER"
+  | "ADMIN"
+  | "STAFF";
+
+function normalizeRole(role?: string | null): "SUPER_ADMIN" | "ORG_ADMIN" | "OPERATOR" | "VIEWER" | undefined {
+  if (!role) return undefined;
+  if (role === "OWNER") return "SUPER_ADMIN";
+  if (role === "ADMIN") return "ORG_ADMIN";
+  if (role === "STAFF") return "OPERATOR";
+  if (role === "SUPER_ADMIN" || role === "ORG_ADMIN" || role === "OPERATOR" || role === "VIEWER") {
+    return role;
+  }
+  return undefined;
+}
 
 export function isSuperAdmin(role?: string | null) {
-  return role === "SUPER_ADMIN";
+  return normalizeRole(role) === "SUPER_ADMIN";
 }
 
 export function isOrgAdmin(role?: string | null) {
-  return role === "ORG_ADMIN" || role === "SUPER_ADMIN";
+  const normalized = normalizeRole(role);
+  return normalized === "ORG_ADMIN" || normalized === "SUPER_ADMIN";
 }
 
 export function isOperator(role?: string | null) {
-  return role === "OPERATOR" || role === "ORG_ADMIN" || role === "SUPER_ADMIN";
+  const normalized = normalizeRole(role);
+  return normalized === "OPERATOR" || normalized === "ORG_ADMIN" || normalized === "SUPER_ADMIN";
 }
 
 /**
@@ -54,15 +74,21 @@ export async function requireOrgAccess(orgId: string) {
 
 export async function requireRoleAtLeast(minRole: Role) {
   const session = await requireAuth();
-  const role = (session.user as any).role as Role | undefined;
+  const role = normalizeRole((session.user as any).role as string | undefined);
+  const min = normalizeRole(minRole);
   if (!role) {
     const err: any = new Error("Forbidden: missing role");
     err.status = 403;
     throw err;
   }
+  if (!min) {
+    const err: any = new Error("Forbidden: invalid minimum role");
+    err.status = 403;
+    throw err;
+  }
 
-  const order: Role[] = ["VIEWER", "OPERATOR", "ORG_ADMIN", "SUPER_ADMIN"];
-  if (order.indexOf(role) < order.indexOf(minRole)) {
+  const order = ["VIEWER", "OPERATOR", "ORG_ADMIN", "SUPER_ADMIN"] as const;
+  if (order.indexOf(role) < order.indexOf(min)) {
     const err: any = new Error("Forbidden: insufficient role");
     err.status = 403;
     throw err;

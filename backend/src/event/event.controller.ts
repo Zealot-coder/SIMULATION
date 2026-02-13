@@ -5,7 +5,6 @@ import {
   Body,
   Param,
   UseGuards,
-  ParseUUIDPipe,
   Query,
 } from '@nestjs/common';
 import { EventService } from './event.service';
@@ -42,7 +41,7 @@ export class EventController {
   }
 
   @Get(':id')
-  async findOne(@Param('id', ParseUUIDPipe) id: string) {
+  async findOne(@Param('id') id: string) {
     return this.eventService.findOne(id);
   }
 }

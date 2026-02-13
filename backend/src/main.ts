@@ -18,14 +18,37 @@ async function bootstrap() {
     }),
   );
   
-  // CORS (configure for production)
+  const configuredOrigins = [
+    process.env.FRONTEND_URL,
+    ...String(process.env.CORS_ORIGINS || '')
+      .split(',')
+      .map((v) => v.trim())
+      .filter(Boolean),
+    'http://localhost:3000',
+  ].filter(Boolean) as string[];
+  const allowVercelPreviews = process.env.ALLOW_VERCEL_PREVIEWS === 'true';
+
   app.enableCors({
-    origin: [
-      process.env.FRONTEND_URL || 'http://localhost:3000',
-      'http://localhost:3000',
-    ],
+    origin: (origin, callback) => {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      if (configuredOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      if (allowVercelPreviews && /^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error(`CORS blocked for origin: ${origin}`), false);
+    },
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
   

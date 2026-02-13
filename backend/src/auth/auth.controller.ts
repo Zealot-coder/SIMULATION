@@ -38,7 +38,10 @@ export class AuthController {
     const tokens = await this.authService.generateTokensForOAuthUser(user);
     
     // Redirect to frontend with tokens and user info
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const frontendUrl =
+      process.env.FRONTEND_URL ||
+      process.env.NEXTAUTH_URL ||
+      'http://localhost:3000';
     const redirectUrl = new URL(`${frontendUrl}/auth/callback`);
     
     // Add tokens and user info to query params
@@ -66,7 +69,10 @@ export class AuthController {
     const tokens = await this.authService.generateTokensForOAuthUser(user);
     
     // Redirect to frontend with tokens and user info
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+    const frontendUrl =
+      process.env.FRONTEND_URL ||
+      process.env.NEXTAUTH_URL ||
+      'http://localhost:3000';
     const redirectUrl = new URL(`${frontendUrl}/auth/callback`);
     
     redirectUrl.searchParams.set('token', tokens.accessToken);

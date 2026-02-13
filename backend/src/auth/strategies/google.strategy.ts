@@ -12,10 +12,18 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     private configService: ConfigService,
     private prisma: PrismaService,
   ) {
+    const explicitCallback = configService.get<string>('GOOGLE_CALLBACK_URL');
+    const backendUrl = configService.get<string>('BACKEND_URL');
+    const callbackURL =
+      explicitCallback ||
+      (backendUrl
+        ? `${backendUrl.replace(/\/$/, '')}/api/v1/auth/google/callback`
+        : 'http://localhost:3001/api/v1/auth/google/callback');
+
     super({
       clientID: configService.get<string>('GOOGLE_CLIENT_ID'),
       clientSecret: configService.get<string>('GOOGLE_CLIENT_SECRET'),
-      callbackURL: configService.get<string>('GOOGLE_CALLBACK_URL') || '/api/v1/auth/google/callback',
+      callbackURL,
       scope: ['email', 'profile'],
     });
   }
@@ -99,6 +107,10 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
         } else {
           // Create new user
           this.logger.log(`Creating new user from Google OAuth: ${email}`);
+          const ownerCount = await tx.user.count({
+            where: { role: 'OWNER' },
+          });
+          const assignedRole = ownerCount === 0 ? 'OWNER' : 'VIEWER';
           
           const newUser = await tx.user.create({
             data: {
@@ -107,7 +119,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
               lastName,
               name: fullName,
               avatar,
-              role: 'VIEWER', // Default role for new OAuth users
+              role: assignedRole,
               isActive: true,
               lastLogin: new Date(),
               oauthAccounts: {

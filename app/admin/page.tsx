@@ -16,30 +16,39 @@ export default function AdminDashboardPage() {
   const [analytics, setAnalytics] = useState<any>(null);
   const [aiUsage, setAiUsage] = useState<any>(null);
   const [automations, setAutomations] = useState<any>(null);
+  const [recentUsers, setRecentUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const isAdmin = user?.role === "OWNER" || user?.role === "SUPER_ADMIN";
 
   useEffect(() => {
-    if (user?.role !== "OWNER") {
+    if (!user) {
+      return;
+    }
+
+    if (!isAdmin) {
       setError("Admin access required");
       setLoading(false);
       return;
     }
 
+    setError(null);
     loadAdminData();
-  }, [user]);
+  }, [isAdmin, user]);
 
   const loadAdminData = async () => {
     try {
-      const [analyticsRes, aiUsageRes, automationsRes] = await Promise.all([
+      const [analyticsRes, aiUsageRes, automationsRes, usersRes] = await Promise.all([
         apiClient.get("/admin/analytics"),
         apiClient.get("/admin/ai-usage"),
         apiClient.get("/admin/automations"),
+        apiClient.get("/admin/users?page=1&limit=10"),
       ]);
 
-      setAnalytics(analyticsRes.data);
-      setAiUsage(aiUsageRes.data);
-      setAutomations(automationsRes.data);
+      setAnalytics(analyticsRes);
+      setAiUsage(aiUsageRes);
+      setAutomations(automationsRes);
+      setRecentUsers(usersRes?.users || []);
     } catch (err: any) {
       setError(err.response?.data?.message || "Failed to load admin data");
     } finally {
@@ -57,7 +66,7 @@ export default function AdminDashboardPage() {
     );
   }
 
-  if (error || user?.role !== "OWNER") {
+  if (error || !isAdmin) {
     return (
       <ProtectedRoute>
         <AdminSidebar />
@@ -260,7 +269,7 @@ export default function AdminDashboardPage() {
                   className="w-full justify-start gap-2 h-auto py-3 px-4 rounded-lg hover:bg-muted/50"
                   onClick={async () => {
                     const data = await apiClient.get("/admin/export?format=json");
-                    const blob = new Blob([JSON.stringify(data.data, null, 2)], {
+                    const blob = new Blob([JSON.stringify(data, null, 2)], {
                       type: "application/json",
                     });
                     const url = URL.createObjectURL(blob);
@@ -277,6 +286,33 @@ export default function AdminDashboardPage() {
                   </div>
                 </Button>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/50 mt-8">
+            <CardHeader>
+              <CardTitle>Recent Users</CardTitle>
+              <CardDescription>Latest accounts created in the system</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {recentUsers.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No users found.</p>
+              ) : (
+                <div className="space-y-3">
+                  {recentUsers.map((u) => (
+                    <div key={u.id} className="flex items-center justify-between border-b border-border/40 pb-2">
+                      <div>
+                        <p className="text-sm font-medium">{u.name || `${u.firstName || ""} ${u.lastName || ""}`.trim() || u.email || u.phone}</p>
+                        <p className="text-xs text-muted-foreground">{u.email || u.phone || "No contact"}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">{u.role}</p>
+                        <p className="text-xs text-muted-foreground">{new Date(u.createdAt).toLocaleString()}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

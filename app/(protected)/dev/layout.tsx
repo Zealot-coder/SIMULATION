@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
@@ -18,9 +18,8 @@ import {
   X,
   LogOut,
   Shield,
-  ChevronDown,
 } from "lucide-react";
-import { redirect } from "next/navigation";
+import { isDevRole } from "@/lib/dashboard";
 
 const navigation = [
   { name: "Overview", href: "/dev/overview", icon: LayoutDashboard },
@@ -34,12 +33,19 @@ const navigation = [
 export default function DevLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
+  const router = useRouter();
   const { data: session } = useSession();
   const user = session?.user as any;
 
-  // Only SUPER_ADMIN can access dev console
-  if (user?.role !== "SUPER_ADMIN" && user?.role !== "OWNER" && user?.role !== "ADMIN") {
-    redirect("/app/overview");
+  useEffect(() => {
+    if (user && !isDevRole(user.role)) {
+      router.replace("/app/overview");
+    }
+  }, [router, user]);
+
+  // Only owner/super-admin aliases can access dev console
+  if (user && !isDevRole(user.role)) {
+    return null;
   }
 
   return (

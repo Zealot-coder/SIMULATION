@@ -5,7 +5,6 @@ import {
   Body,
   Param,
   UseGuards,
-  ParseUUIDPipe,
 } from '@nestjs/common';
 import { OrganizationService } from './organization.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
@@ -32,7 +31,7 @@ export class OrganizationController {
   }
 
   @Get(':id')
-  async findOne(@Param('id', ParseUUIDPipe) id: string) {
+  async findOne(@Param('id') id: string) {
     return this.organizationService.findOne(id);
   }
 
@@ -43,7 +42,7 @@ export class OrganizationController {
 
   @Post(':id/members')
   async addMember(
-    @Param('id', ParseUUIDPipe) organizationId: string,
+    @Param('id') organizationId: string,
     @CurrentUser() user: any,
     @Body() dto: AddMemberDto,
   ) {

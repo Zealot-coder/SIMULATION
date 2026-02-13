@@ -5,7 +5,6 @@ import {
   Param,
   Query,
   UseGuards,
-  ParseUUIDPipe,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -29,12 +28,12 @@ export class AdminController {
   }
 
   @Post('user/:id/disable')
-  async disableUser(@Param('id', ParseUUIDPipe) id: string) {
+  async disableUser(@Param('id') id: string) {
     return this.adminService.disableUser(id);
   }
 
   @Post('user/:id/enable')
-  async enableUser(@Param('id', ParseUUIDPipe) id: string) {
+  async enableUser(@Param('id') id: string) {
     return this.adminService.enableUser(id);
   }
 

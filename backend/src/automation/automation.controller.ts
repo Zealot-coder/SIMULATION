@@ -5,7 +5,6 @@ import {
   Body,
   Param,
   UseGuards,
-  ParseUUIDPipe,
   Query,
 } from '@nestjs/common';
 import { AutomationService } from './automation.service';
@@ -58,7 +57,7 @@ export class AutomationController {
 
   @Get(':id/status')
   async getStatus(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @CurrentUser() user: any,
   ) {
     return this.automationService.getJobStatus(id, user.id);
@@ -66,7 +65,7 @@ export class AutomationController {
 
   @Get(':id/result')
   async getResult(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @CurrentUser() user: any,
   ) {
     return this.automationService.getJobResult(id, user.id);

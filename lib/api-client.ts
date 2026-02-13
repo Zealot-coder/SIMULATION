@@ -1,3 +1,21 @@
+
+import { createBrowserClient } from "@supabase/ssr";
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey =
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY ??
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+export const createClient = () => {
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error(
+      "Supabase public configuration missing. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY (or NEXT_PUBLIC_SUPABASE_ANON_KEY)."
+    );
+  }
+  return createBrowserClient(supabaseUrl, supabaseKey);
+};
+
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api/v1';
 
 class ApiClient {
@@ -36,10 +54,20 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
 
-    const response = await fetch(url, {
-      ...options,
-      headers,
-    });
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        ...options,
+        headers,
+      });
+    } catch (err: any) {
+      const error = new Error(
+        "Unable to reach backend API. Check NEXT_PUBLIC_API_URL and confirm backend is running."
+      );
+      (error as any).status = 0;
+      (error as any).response = { data: { message: error.message } };
+      throw error;
+    }
 
     if (!response.ok) {
       let errorMessage = response.statusText;
@@ -56,7 +84,9 @@ class ApiClient {
       throw error;
     }
 
-    return response.json();
+    // Handle endpoints that may return empty body
+    const text = await response.text();
+    return (text ? JSON.parse(text) : ({} as T)) as T;
   }
 
   // Auth
@@ -159,7 +189,7 @@ class ApiClient {
   }
 
   async updateUserStatus(userId: string, action: 'enable' | 'disable') {
-    return this.patch(`/admin/users/${userId}/status?action=${action}`);
+    return this.post(`/admin/user/${userId}/${action}`);
   }
 
   async getAdminAnalytics(startDate?: string, endDate?: string) {

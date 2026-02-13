@@ -2,17 +2,21 @@ import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
 import GitHub from "next-auth/providers/github";
 import type { NextAuthOptions, User } from "next-auth";
+import { isDevRole } from "@/lib/dashboard";
 
 // Build base API URL for server-side requests
-const API_BASE = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api/v1";
+const API_BASE = (process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api/v1").replace(/\/$/, "");
 const AUTH_SECRET = process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET || process.env.JWT_SECRET;
 const GOOGLE_OAUTH_ID = process.env.GOOGLE_CLIENT_ID || process.env.AUTH_GOOGLE_ID;
 const GOOGLE_OAUTH_SECRET = process.env.GOOGLE_CLIENT_SECRET || process.env.AUTH_GOOGLE_SECRET;
 const GITHUB_OAUTH_ID = process.env.GITHUB_ID || process.env.GITHUB_CLIENT_ID || process.env.AUTH_GITHUB_ID;
 const GITHUB_OAUTH_SECRET = process.env.GITHUB_SECRET || process.env.GITHUB_CLIENT_SECRET || process.env.AUTH_GITHUB_SECRET;
+// Default OAuth mode uses backend routes (/api/v1/auth/google|github).
+// Set this to true only if you intentionally want direct NextAuth OAuth callbacks.
+const NEXTAUTH_USE_DIRECT_OAUTH = process.env.NEXTAUTH_USE_DIRECT_OAUTH === "true";
 
 // User roles type
-export type UserRole = 'SUPER_ADMIN' | 'ORG_ADMIN' | 'OPERATOR' | 'VIEWER';
+export type UserRole = "OWNER" | "ADMIN" | "STAFF" | "VIEWER" | "SUPER_ADMIN" | "ORG_ADMIN" | "OPERATOR";
 
 // Extended user type
 interface ExtendedUser extends User {
@@ -59,14 +63,21 @@ type BackendMeResponse = {
  * Determine dashboard route based on user role
  */
 export function getDashboardRoute(role: UserRole): string {
-  if (role === 'SUPER_ADMIN') {
+  if (isDevRole(role)) {
     return '/dev/overview';
   }
   return '/app/overview';
 }
 
+function ensureServerApiBaseConfigured() {
+  if (process.env.NODE_ENV === "production" && API_BASE.includes("localhost")) {
+    throw new Error("Server auth misconfigured: API_URL must point to your deployed backend in production.");
+  }
+}
+
 async function backendLogin(credentials: Record<string, string | undefined>) {
   try {
+    ensureServerApiBaseConfigured();
     const res = await fetch(`${API_BASE}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -85,12 +96,17 @@ async function backendLogin(credentials: Record<string, string | undefined>) {
     return data;
   } catch (err: any) {
     console.error("Backend login failed:", err?.message || err);
+    const msg = String(err?.message || "");
+    if (msg.toLowerCase().includes("fetch failed")) {
+      throw new Error("Unable to reach authentication server. Verify API_URL/NEXT_PUBLIC_API_URL and backend uptime.");
+    }
     throw new Error(err?.message || "Unable to sign in at the moment. Please try again.");
   }
 }
 
 async function backendRegister(data: { email: string; password: string; firstName?: string; lastName?: string }) {
   try {
+    ensureServerApiBaseConfigured();
     const res = await fetch(`${API_BASE}/auth/register`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -104,12 +120,17 @@ async function backendRegister(data: { email: string; password: string; firstNam
     return await res.json() as BackendLoginResponse;
   } catch (err: any) {
     console.warn("Backend registration failed:", err.message);
+    const msg = String(err?.message || "");
+    if (msg.toLowerCase().includes("fetch failed")) {
+      throw new Error("Unable to reach authentication server. Verify API_URL/NEXT_PUBLIC_API_URL and backend uptime.");
+    }
     throw err;
   }
 }
 
 async function backendUserFromAccessToken(accessToken: string) {
   try {
+    ensureServerApiBaseConfigured();
     const res = await fetch(`${API_BASE}/auth/me`, {
       method: "GET",
       headers: {
@@ -125,6 +146,10 @@ async function backendUserFromAccessToken(accessToken: string) {
     return (await res.json()) as BackendMeResponse;
   } catch (err: any) {
     console.error("Backend OAuth token verification failed:", err?.message || err);
+    const msg = String(err?.message || "");
+    if (msg.toLowerCase().includes("fetch failed")) {
+      throw new Error("Unable to reach authentication server. Verify API_URL/NEXT_PUBLIC_API_URL and backend uptime.");
+    }
     throw new Error(err?.message || "Unable to verify OAuth sign in.");
   }
 }
@@ -186,7 +211,7 @@ const providers: NextAuthOptions["providers"] = [
   }),
 ];
 
-if (GOOGLE_OAUTH_ID && GOOGLE_OAUTH_SECRET) {
+if (NEXTAUTH_USE_DIRECT_OAUTH && GOOGLE_OAUTH_ID && GOOGLE_OAUTH_SECRET) {
   providers.push(
     Google({
       clientId: GOOGLE_OAUTH_ID,
@@ -201,7 +226,7 @@ if (GOOGLE_OAUTH_ID && GOOGLE_OAUTH_SECRET) {
   );
 }
 
-if (GITHUB_OAUTH_ID && GITHUB_OAUTH_SECRET) {
+if (NEXTAUTH_USE_DIRECT_OAUTH && GITHUB_OAUTH_ID && GITHUB_OAUTH_SECRET) {
   providers.push(
     GitHub({
       clientId: GITHUB_OAUTH_ID,

@@ -40,6 +40,12 @@ export class AuthService {
       ? await bcrypt.hash(dto.password, 10)
       : null;
 
+    // Bootstrap rule: ensure there is always at least one platform owner.
+    const ownerCount = await this.prisma.user.count({
+      where: { role: 'OWNER' },
+    });
+    const assignedRole = ownerCount === 0 ? 'OWNER' : (dto.role || 'VIEWER');
+
     // Create user
     const user = await this.prisma.user.create({
       data: {
@@ -49,7 +55,7 @@ export class AuthService {
         firstName: dto.firstName,
         lastName: dto.lastName,
         name: [dto.firstName, dto.lastName].filter(Boolean).join(' ') || undefined,
-        role: dto.role || 'VIEWER',
+        role: assignedRole,
         isActive: true,
         lastLogin: new Date(),
       },

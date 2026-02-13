@@ -8,7 +8,7 @@ export type SupportedRole =
   | "STAFF";
 
 export function isDevRole(role?: string | null): boolean {
-  return role === "SUPER_ADMIN" || role === "OWNER" || role === "ADMIN";
+  return role === "SUPER_ADMIN" || role === "OWNER";
 }
 
 export function getDashboardRouteForRole(role?: string | null): "/dev/overview" | "/app/overview" {

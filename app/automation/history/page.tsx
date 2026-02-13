@@ -19,7 +19,7 @@ export default function AutomationHistoryPage() {
   const loadHistory = async () => {
     try {
       const response = await apiClient.get("/automation/history");
-      setJobs(response.data);
+      setJobs(Array.isArray(response) ? response : []);
     } catch (error) {
       console.error("Failed to load history:", error);
     } finally {

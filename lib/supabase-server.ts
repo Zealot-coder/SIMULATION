@@ -5,12 +5,52 @@
   - Falls back to throwing an informative error if keys are missing.
 */
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
+
+import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const supabaseKey =
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY ??
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+export const createClient = (cookieStore: ReturnType<typeof cookies>) => {
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error(
+      "Supabase public configuration missing. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_DEFAULT_KEY (or NEXT_PUBLIC_SUPABASE_ANON_KEY)."
+    );
+  }
+  return createServerClient(
+    supabaseUrl,
+    supabaseKey,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll()
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) => cookieStore.set(name, value, options))
+          } catch {
+            // The `setAll` method was called from a Server Component.
+            // This can be ignored if you have middleware refreshing
+            // user sessions.
+          }
+        },
+      },
+    },
+  );
+};
+
+
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 function assertSupabaseConfigured() {
   if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
-    const err: any = new Error("Supabase service role configuration missing. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY to enable DB-backed endpoints.");
+    const err: any = new Error(
+      "Supabase service role configuration missing. Set SUPABASE_SERVICE_ROLE_KEY and SUPABASE_URL (or NEXT_PUBLIC_SUPABASE_URL) to enable DB-backed endpoints."
+    );
     err.status = 500;
     throw err;
   }

@@ -20,7 +20,7 @@ export default function AutomationStatusPage() {
     const fetchStatus = async () => {
       try {
         const response = await apiClient.get(`/automation/${jobId}/status`);
-        setJob(response.data);
+        setJob(response || null);
       } catch (err: any) {
         setError(err.response?.data?.message || "Failed to load job status");
       } finally {

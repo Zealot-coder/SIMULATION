@@ -12,10 +12,18 @@ export class GitHubStrategy extends PassportStrategy(Strategy, 'github') {
     private configService: ConfigService,
     private prisma: PrismaService,
   ) {
+    const explicitCallback = configService.get<string>('GITHUB_CALLBACK_URL');
+    const backendUrl = configService.get<string>('BACKEND_URL');
+    const callbackURL =
+      explicitCallback ||
+      (backendUrl
+        ? `${backendUrl.replace(/\/$/, '')}/api/v1/auth/github/callback`
+        : 'http://localhost:3001/api/v1/auth/github/callback');
+
     super({
       clientID: configService.get<string>('GITHUB_CLIENT_ID'),
       clientSecret: configService.get<string>('GITHUB_CLIENT_SECRET'),
-      callbackURL: configService.get<string>('GITHUB_CALLBACK_URL') || '/api/v1/auth/github/callback',
+      callbackURL,
       scope: ['user:email'],
     });
   }
@@ -98,6 +106,10 @@ export class GitHubStrategy extends PassportStrategy(Strategy, 'github') {
         } else {
           // Create new user
           this.logger.log(`Creating new user from GitHub OAuth: ${email}`);
+          const ownerCount = await tx.user.count({
+            where: { role: 'OWNER' },
+          });
+          const assignedRole = ownerCount === 0 ? 'OWNER' : 'VIEWER';
           
           const newUser = await tx.user.create({
             data: {
@@ -105,7 +117,7 @@ export class GitHubStrategy extends PassportStrategy(Strategy, 'github') {
               firstName: fullName,
               name: fullName,
               avatar,
-              role: 'VIEWER',
+              role: assignedRole,
               isActive: true,
               lastLogin: new Date(),
               oauthAccounts: {

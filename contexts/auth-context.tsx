@@ -4,6 +4,7 @@ import { createContext, useContext, useState, useEffect, ReactNode, useCallback 
 import { useSession, signOut, signIn } from 'next-auth/react';
 import { useRouter, usePathname } from 'next/navigation';
 import { getDashboardRouteForRole, isDevRole } from '@/lib/dashboard';
+import { apiClient } from '@/lib/api-client';
 
 // User roles
 export type UserRole = 'SUPER_ADMIN' | 'ORG_ADMIN' | 'OPERATOR' | 'VIEWER' | 'OWNER' | 'ADMIN' | 'STAFF';
@@ -62,6 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   
   const loading = status === 'loading';
   const isAuthenticated = !!session?.user;
+  const accessToken = (session as any)?.accessToken as string | undefined;
   
   // Convert NextAuth session user to our User type
   const user: User | null = session?.user ? {
@@ -98,6 +100,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
   }, [user, loading, pathname, router, isAuthenticated]);
+
+  // Keep REST API client in sync with NextAuth session token.
+  useEffect(() => {
+    apiClient.setToken(accessToken || null);
+  }, [accessToken]);
 
   const login = async (email: string, password: string) => {
     setError(null);

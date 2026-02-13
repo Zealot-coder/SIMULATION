@@ -1,6 +1,5 @@
 "use client";
 
-import { useSession } from "next-auth/react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -8,10 +7,8 @@ import {
   Building2,
   AlertTriangle,
   TrendingUp,
-  Users,
   Server,
   ArrowRight,
-  CheckCircle2,
   XCircle,
 } from "lucide-react";
 import Link from "next/link";
@@ -40,9 +37,6 @@ const mockRecentFailures = [
 ];
 
 export default function DevOverviewPage() {
-  const { data: session } = useSession();
-  const user = session?.user as any;
-
   return (
     <div className="space-y-6">
       {/* Header */}

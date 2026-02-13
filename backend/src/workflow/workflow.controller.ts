@@ -6,7 +6,6 @@ import {
   Body,
   Param,
   UseGuards,
-  ParseUUIDPipe,
 } from '@nestjs/common';
 import { WorkflowService } from './workflow.service';
 import { CreateWorkflowDto } from './dto/create-workflow.dto';
@@ -35,14 +34,14 @@ export class WorkflowController {
   }
 
   @Get(':id')
-  async findOne(@Param('id', ParseUUIDPipe) id: string) {
+  async findOne(@Param('id') id: string) {
     return this.workflowService.findOne(id);
   }
 
   @Put(':id')
   @UseGuards(OrganizationGuard)
   async update(
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('id') id: string,
     @CurrentOrganization() organization: any,
     @Body() dto: Partial<CreateWorkflowDto>,
   ) {
