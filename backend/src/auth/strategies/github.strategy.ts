@@ -73,7 +73,7 @@ export class GitHubStrategy extends PassportStrategy(Strategy, 'github') {
 
           // Check if OAuth account exists
           const existingOAuth = existingUser.oauthAccounts.find(
-            (oa) => oa.provider === 'github' && oa.providerAccountId === id
+            (oa: any) => oa.provider === 'github',
           );
 
           if (!existingOAuth) {
@@ -94,6 +94,7 @@ export class GitHubStrategy extends PassportStrategy(Strategy, 'github') {
             await tx.oAuthAccount.update({
               where: { id: existingOAuth.id },
               data: {
+                providerAccountId: id,
                 email,
                 name: fullName,
                 avatar,

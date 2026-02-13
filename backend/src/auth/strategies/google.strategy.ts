@@ -28,6 +28,12 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
     });
   }
 
+  authorizationParams(): Record<string, string> {
+    return {
+      prompt: 'select_account',
+    };
+  }
+
   async validate(
     accessToken: string,
     refreshToken: string,
@@ -74,7 +80,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
 
           // Check if OAuth account exists, if not create it
           const existingOAuth = existingUser.oauthAccounts.find(
-            (oa) => oa.provider === 'google' && oa.providerAccountId === id
+            (oa: any) => oa.provider === 'google',
           );
 
           if (!existingOAuth) {
@@ -95,6 +101,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
             await tx.oAuthAccount.update({
               where: { id: existingOAuth.id },
               data: {
+                providerAccountId: id,
                 email,
                 name: fullName,
                 avatar,
