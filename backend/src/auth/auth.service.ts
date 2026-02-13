@@ -153,17 +153,29 @@ export class AuthService {
   }
 
   async validateUser(userId: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: {
-        organizationMemberships: {
-          include: {
-            organization: true,
+    let user: any;
+    try {
+      user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        include: {
+          organizationMemberships: {
+            include: {
+              organization: true,
+            },
           },
+          oauthAccounts: true,
         },
-        oauthAccounts: true,
-      },
-    });
+      });
+    } catch (err: any) {
+      // Legacy production DBs may not have Organization/OrganizationMember tables yet.
+      // Fall back to a minimal user lookup for auth.
+      user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        include: {
+          oauthAccounts: true,
+        },
+      });
+    }
 
     if (!user || !user.isActive) {
       return null;

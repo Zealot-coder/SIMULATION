@@ -18,15 +18,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
+    // Keep JWT validation resilient even if optional domain tables (like OrganizationMember)
+    // are not yet present in an existing production database.
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
-      include: {
-        organizationMemberships: {
-          include: {
-            organization: true,
-          },
-        },
-      },
     });
 
     if (!user || !user.isActive) {

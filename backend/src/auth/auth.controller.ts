@@ -112,11 +112,12 @@ export class AuthController {
       role: user.role,
       lastLogin: user.lastLogin,
       createdAt: user.createdAt,
-      organizations: user.organizationMemberships?.map((m: any) => ({
-        id: m.organization.id,
-        name: m.organization.name,
+      // Memberships are optional and may not exist in legacy DBs yet.
+      organizations: user.organizationMemberships?.map?.((m: any) => ({
+        id: m.organization?.id,
+        name: m.organization?.name,
         role: m.role,
-      })),
+      })) || [],
     };
   }
 }
