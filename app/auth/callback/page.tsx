@@ -91,10 +91,6 @@ function SuccessState({ role }: { role: string }) {
             Redirecting to your {isAdmin ? "admin" : "user"} dashboard...
           </p>
         </div>
-
-        <div className="text-xs text-muted-foreground bg-muted/50 px-3 py-1.5 rounded-full inline-block">
-          {dashboardRoute}
-        </div>
       </div>
     </motion.div>
   );

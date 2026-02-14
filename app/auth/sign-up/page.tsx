@@ -71,7 +71,9 @@ export default function SignUpPage() {
 
   function handleOAuth(provider: "google" | "github") {
     setLoading(true);
-    window.location.href = `${PUBLIC_API_BASE}/auth/${provider}`;
+    // Start OAuth from the frontend domain so users don't see the backend
+    // host loading page before getting to the provider account chooser.
+    window.location.href = `/api/oauth/${provider}`;
   }
 
   return (
