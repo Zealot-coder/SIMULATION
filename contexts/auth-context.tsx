@@ -127,7 +127,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = () => {
-    signOut({ callbackUrl: '/auth/sign-in' });
+    // After logout, go back to homepage (not /auth/callback).
+    signOut({ callbackUrl: '/' });
   };
 
   const clearError = () => setError(null);

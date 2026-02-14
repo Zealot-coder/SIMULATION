@@ -17,7 +17,7 @@ export function UserButton() {
   return (
     <div className="flex items-center gap-2">
       <div className="text-sm">{name}</div>
-      <button className="text-sm text-muted-foreground" onClick={() => signOut()}>Sign out</button>
+      <button className="text-sm text-muted-foreground" onClick={() => signOut({ callbackUrl: '/' })}>Sign out</button>
     </div>
   );
 }

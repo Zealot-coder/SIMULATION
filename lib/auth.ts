@@ -339,11 +339,6 @@ export const authOptions: NextAuthOptions = {
     async redirect({ url, baseUrl }) {
       // If URL is relative, prepend base URL
       if (url.startsWith("/")) {
-        // Check if it's a dashboard redirect
-        if (url === "/" || url === "/auth/sign-in" || url === "/auth/sign-up") {
-          // Will be handled by client-side auth context
-          return `${baseUrl}/auth/callback`;
-        }
         return `${baseUrl}${url}`;
       }
       
