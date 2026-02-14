@@ -19,6 +19,80 @@ export class AdminService {
   }
 
   // User Management
+  async getUserMetrics(months: number = 6) {
+    // Protect the DB from accidentally huge reads (e.g. months=100000).
+    const normalizedMonths = Number.isFinite(months) ? Math.trunc(months) : 6;
+    const windowMonths = Math.min(Math.max(normalizedMonths, 1), 36);
+
+    const now = new Date();
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (windowMonths - 1), 1));
+
+    const monthKey = (d: Date) =>
+      `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+
+    // Pre-fill months so the client always gets a contiguous timeline.
+    const monthsTimeline = Array.from({ length: windowMonths }, (_, i) => {
+      const d = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + i, 1));
+      return monthKey(d);
+    });
+
+    const [totalUsers, activeUsers, usersByRole, createdAts, lastLogins] = await Promise.all([
+      this.prisma.user.count(),
+      this.prisma.user.count({ where: { isActive: true } }),
+      this.prisma.user.groupBy({
+        by: ['role'],
+        _count: { _all: true },
+      }),
+      this.prisma.user.findMany({
+        where: { createdAt: { gte: start } },
+        select: { createdAt: true },
+      }),
+      this.prisma.user.findMany({
+        where: { lastLogin: { gte: start } },
+        select: { lastLogin: true },
+      }),
+    ]);
+
+    const byRole: Record<UserRole, number> = {
+      OWNER: 0,
+      ADMIN: 0,
+      STAFF: 0,
+      VIEWER: 0,
+    };
+    for (const row of usersByRole) {
+      byRole[row.role] = row._count._all;
+    }
+
+    const newUsersByMonth = Object.fromEntries(monthsTimeline.map((m) => [m, 0])) as Record<string, number>;
+    for (const row of createdAts) {
+      const key = monthKey(row.createdAt);
+      if (key in newUsersByMonth) newUsersByMonth[key] += 1;
+    }
+
+    const loginsByMonth = Object.fromEntries(monthsTimeline.map((m) => [m, 0])) as Record<string, number>;
+    for (const row of lastLogins) {
+      if (!row.lastLogin) continue;
+      const key = monthKey(row.lastLogin);
+      if (key in loginsByMonth) loginsByMonth[key] += 1;
+    }
+
+    return {
+      range: {
+        months: windowMonths,
+        start: start.toISOString(),
+        end: now.toISOString(),
+      },
+      totals: {
+        users: totalUsers,
+        active: activeUsers,
+        inactive: totalUsers - activeUsers,
+        byRole,
+      },
+      newUsersByMonth: monthsTimeline.map((m) => ({ month: m, count: newUsersByMonth[m] })),
+      loginsByMonth: monthsTimeline.map((m) => ({ month: m, count: loginsByMonth[m] })),
+    };
+  }
+
   async getUsers(page = 1, limit = 50) {
     const skip = (page - 1) * limit;
     const [users, total] = await Promise.all([

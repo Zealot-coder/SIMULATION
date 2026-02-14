@@ -9,6 +9,29 @@ import { Eye, EyeOff } from "lucide-react";
 
 const PUBLIC_API_BASE = getPublicApiBaseUrl();
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function waitForBackendReady(timeoutMs: number = 25000) {
+  const healthUrl = `${PUBLIC_API_BASE}/health`;
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch(healthUrl, {
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      if (res.ok) return;
+    } catch {
+      // Keep retrying until deadline.
+    }
+    await sleep(1000);
+  }
+}
+
 // Separate component to handle search params
 function SignInForm() {
   const [email, setEmail] = useState("");
@@ -49,8 +72,12 @@ function SignInForm() {
     }
   };
 
-  const handleOAuthSignIn = (provider: "google" | "github") => {
+  const handleOAuthSignIn = async (provider: "google" | "github") => {
     setIsLoading(true);
+    setError(null);
+    // Reduce Render cold-start failures during OAuth callbacks by waking the backend
+    // before sending the user to the provider.
+    await waitForBackendReady();
     // Start OAuth from the frontend domain so users don't see the backend
     // host loading page before getting to the provider account chooser.
     window.location.href = `/api/oauth/${provider}`;

@@ -7,6 +7,8 @@ import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { GoogleStrategy } from './strategies/google.strategy';
 import { GitHubStrategy } from './strategies/github.strategy';
+import { GoogleOAuthGuard } from './guards/google-oauth.guard';
+import { GitHubOAuthGuard } from './guards/github-oauth.guard';
 import { PrismaModule } from '../prisma/prisma.module';
 
 @Module({
@@ -25,7 +27,14 @@ import { PrismaModule } from '../prisma/prisma.module';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, GoogleStrategy, GitHubStrategy],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    GoogleStrategy,
+    GitHubStrategy,
+    GoogleOAuthGuard,
+    GitHubOAuthGuard,
+  ],
   exports: [AuthService],
 })
 export class AuthModule {}

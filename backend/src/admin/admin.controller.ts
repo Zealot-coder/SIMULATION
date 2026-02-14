@@ -16,6 +16,11 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
+  @Get('user-metrics')
+  async getUserMetrics(@Query('months') months?: string) {
+    return this.adminService.getUserMetrics(months ? parseInt(months) : 6);
+  }
+
   @Get('users')
   async getUsers(
     @Query('page') page?: string,
