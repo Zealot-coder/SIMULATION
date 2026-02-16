@@ -9,12 +9,34 @@ import {
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from './guards/admin.guard';
-import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard, AdminGuard)
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
+
+  @Get('system/metrics')
+  async getSystemMetrics() {
+    return this.adminService.getSystemMetrics();
+  }
+
+  @Get('system/errors')
+  async getRecentErrors(@Query('limit') limit?: string) {
+    return this.adminService.getRecentErrors(limit ? parseInt(limit, 10) : 50);
+  }
+
+  @Get('system/logs')
+  async getRecentSystemLogs(
+    @Query('correlationId') correlationId?: string,
+    @Query('organizationId') organizationId?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.adminService.getRecentLogs(
+      correlationId,
+      organizationId,
+      limit ? parseInt(limit, 10) : 100,
+    );
+  }
 
   @Get('user-metrics')
   async getUserMetrics(@Query('months') months?: string) {

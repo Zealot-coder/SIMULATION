@@ -1,10 +1,20 @@
 import { Injectable, ForbiddenException } from '@nestjs/common';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
-import { UserRole } from '@prisma/client';
+import { UserRole, WorkflowStatus } from '@prisma/client';
+import { AppLoggerService } from '../common/logger/app-logger.service';
+import { HealthService } from '../health/health.service';
 
 @Injectable()
 export class AdminService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly logger: AppLoggerService,
+    private readonly healthService: HealthService,
+    @InjectQueue('workflows') private readonly workflowQueue: Queue,
+    @InjectQueue('events') private readonly eventQueue: Queue,
+  ) {}
 
   async verifyAdmin(userId: string) {
     const user = await this.prisma.user.findUnique({
@@ -16,6 +26,135 @@ export class AdminService {
     }
 
     return user;
+  }
+
+  async getSystemMetrics() {
+    const windowStart = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    const [executions, eventCount, eventsByType, workflowQueueCounts, eventQueueCounts, health] =
+      await Promise.all([
+        this.prisma.workflowExecution.findMany({
+          where: { createdAt: { gte: windowStart } },
+          select: {
+            status: true,
+            startedAt: true,
+            completedAt: true,
+          },
+        }),
+        this.prisma.event.count({
+          where: { createdAt: { gte: windowStart } },
+        }),
+        this.prisma.event.groupBy({
+          by: ['type'],
+          where: { createdAt: { gte: windowStart } },
+          _count: {
+            _all: true,
+          },
+        }),
+        this.workflowQueue.getJobCounts('waiting', 'active', 'failed'),
+        this.eventQueue.getJobCounts('waiting', 'active', 'failed'),
+        this.healthService.getDetailedHealthStatus(),
+      ]);
+
+    const totalRuns = executions.length;
+    const successfulRuns = executions.filter((execution) => execution.status === WorkflowStatus.COMPLETED).length;
+    const completedWithDuration = executions.filter(
+      (execution) => execution.startedAt && execution.completedAt,
+    );
+
+    const averageDurationMs =
+      completedWithDuration.length > 0
+        ? completedWithDuration.reduce((sum, execution) => {
+            return sum + (execution.completedAt!.getTime() - execution.startedAt!.getTime());
+          }, 0) / completedWithDuration.length
+        : 0;
+
+    const queue = {
+      waiting: (workflowQueueCounts.waiting || 0) + (eventQueueCounts.waiting || 0),
+      active: (workflowQueueCounts.active || 0) + (eventQueueCounts.active || 0),
+      failed: (workflowQueueCounts.failed || 0) + (eventQueueCounts.failed || 0),
+      workflows: {
+        waiting: workflowQueueCounts.waiting || 0,
+        active: workflowQueueCounts.active || 0,
+        failed: workflowQueueCounts.failed || 0,
+      },
+      events: {
+        waiting: eventQueueCounts.waiting || 0,
+        active: eventQueueCounts.active || 0,
+        failed: eventQueueCounts.failed || 0,
+      },
+    };
+
+    this.logger.info('Admin system metrics requested', {
+      service: 'admin',
+      totalRuns,
+      eventCount,
+      queueWaiting: queue.waiting,
+    });
+
+    return {
+      workflows: {
+        totalRuns,
+        successRate: totalRuns > 0 ? (successfulRuns / totalRuns) * 100 : 100,
+        avgDuration: averageDurationMs / 1000,
+      },
+      events: {
+        totalIngested: eventCount,
+        byType: eventsByType.map((entry) => ({
+          type: entry.type,
+          count: entry._count._all,
+        })),
+      },
+      queue,
+      health,
+    };
+  }
+
+  async getRecentErrors(limit = 50) {
+    return this.prisma.workflowExecution.findMany({
+      where: { status: WorkflowStatus.FAILED },
+      orderBy: { createdAt: 'desc' },
+      take: Math.max(1, Math.min(limit, 200)),
+      include: {
+        workflow: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        organization: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
+  }
+
+  async getRecentLogs(correlationId?: string, organizationId?: string, limit = 100) {
+    const take = Math.max(1, Math.min(limit, 250));
+    return this.prisma.auditLog.findMany({
+      where: {
+        ...(correlationId && {
+          metadata: {
+            path: ['correlationId'],
+            equals: correlationId,
+          },
+        }),
+        ...(organizationId && { organizationId }),
+      },
+      orderBy: { createdAt: 'desc' },
+      take,
+      include: {
+        organization: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
   }
 
   // User Management

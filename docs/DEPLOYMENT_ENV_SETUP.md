@@ -177,7 +177,7 @@ Generate one for NextAuth and another for backend JWT.
 ## 5) Deployment order
 
 1. Deploy backend first.
-2. Confirm backend responds at `https://<your-backend-domain>/api/v1/health`.
+2. Confirm backend responds at `https://<your-backend-domain>/health`.
 3. Add Vercel env vars and redeploy frontend.
 4. Confirm providers endpoint `https://<your-vercel-domain>/api/auth/providers`.
 5. Test credential login and OAuth login.
@@ -189,3 +189,58 @@ Generate one for NextAuth and another for backend JWT.
 3. Setting backend `FRONTEND_URL` to the wrong domain.
 4. Mixing callback styles: backend OAuth uses `/api/v1/auth/<provider>/callback`, direct NextAuth uses `/api/auth/callback/<provider>`.
 5. Forgetting to redeploy after changing env vars.
+
+## 7) Latest development environment updates (2026-02-16)
+
+This section records the latest backend observability and queue changes so deployment configs stay in sync.
+
+### Backend runtime changes
+
+1. Structured JSON logging is enabled via Winston.
+2. Correlation IDs are now attached to requests (`X-Correlation-Id`) and propagated through workflow/event processing.
+3. Prometheus metrics are exposed at `GET /metrics`.
+4. Sentry reporting is enabled when `SENTRY_DSN` is set.
+5. BullMQ queues are active for both `workflows` and `events`.
+6. Health endpoints now validate database, Redis, and queue status:
+   `GET /health`
+   `GET /health/detailed`
+
+### Backend env keys to add/update
+
+Add these to backend local/prod env settings (alongside existing keys in this document):
+
+```env
+# Queue/Redis (required now that queues are enabled)
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=
+
+# CORS hardening
+# Comma-separated extra allowed origins
+CORS_ORIGINS=https://app.example.com,https://www.app.example.com
+# true = allow vercel preview domains (*.vercel.app)
+ALLOW_VERCEL_PREVIEWS=false
+
+# Observability
+LOG_LEVEL=info
+SENTRY_DSN=
+SENTRY_ENVIRONMENT=production
+```
+
+### Frontend production additions
+
+If you use production fallback/API helper behavior from current frontend templates:
+
+```env
+NEXT_PUBLIC_API_FALLBACK_URL=https://<your-backend-domain>/api/v1
+SUPABASE_URL=https://<project-ref>.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
+```
+
+### Post-deploy validation for this update
+
+1. Verify backend health: `https://<your-backend-domain>/health`
+2. Verify detailed checks: `https://<your-backend-domain>/health/detailed`
+3. Verify metrics export: `https://<your-backend-domain>/metrics`
+4. Trigger one workflow/event and confirm queue depth changes in health/admin metrics.
+5. Verify request logs include `correlationId` and matching `X-Correlation-Id` response header.

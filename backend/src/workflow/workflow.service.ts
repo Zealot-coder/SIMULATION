@@ -1,18 +1,19 @@
 import {
   Injectable,
   NotFoundException,
-  BadRequestException,
 } from '@nestjs/common';
+import { EventType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateWorkflowDto } from './dto/create-workflow.dto';
 import { WorkflowExecutionService } from './workflow-execution.service';
-import { EventType, WorkflowStatus } from '@prisma/client';
+import { CorrelationContextService } from '../common/context/correlation-context.service';
 
 @Injectable()
 export class WorkflowService {
   constructor(
-    private prisma: PrismaService,
-    private executionService: WorkflowExecutionService,
+    private readonly prisma: PrismaService,
+    private readonly executionService: WorkflowExecutionService,
+    private readonly correlationContext: CorrelationContextService,
   ) {}
 
   async create(organizationId: string, dto: CreateWorkflowDto) {
@@ -78,7 +79,11 @@ export class WorkflowService {
     });
   }
 
-  async triggerWorkflowsForEvent(organizationId: string, event: any) {
+  async triggerWorkflowsForEvent(
+    organizationId: string,
+    event: { id: string; type: EventType; payload: unknown },
+    correlationId?: string,
+  ) {
     // Find active workflows that match this event type
     const workflows = await this.prisma.workflow.findMany({
       where: {
@@ -101,12 +106,14 @@ export class WorkflowService {
     });
 
     // Execute matching workflows
+    const resolvedCorrelationId = correlationId || this.correlationContext.getCorrelationId();
     for (const workflow of matchingWorkflows) {
       await this.executionService.createExecution(
         workflow.id,
         organizationId,
         event.id,
         event.payload,
+        resolvedCorrelationId,
       );
     }
 
@@ -114,33 +121,56 @@ export class WorkflowService {
   }
 
   private evaluateCondition(
-    condition: { field: string; operator: string; value: any },
-    payload: any,
+    condition: { field: string; operator: string; value: unknown },
+    payload: unknown,
   ): boolean {
     const fieldValue = this.getNestedValue(payload, condition.field);
+    const expectedValue = condition.value;
 
     switch (condition.operator) {
       case '==':
-        return fieldValue === condition.value;
+        return fieldValue === expectedValue;
       case '!=':
-        return fieldValue !== condition.value;
+        return fieldValue !== expectedValue;
       case '>':
-        return fieldValue > condition.value;
+        return this.asNumber(fieldValue) > this.asNumber(expectedValue);
       case '>=':
-        return fieldValue >= condition.value;
+        return this.asNumber(fieldValue) >= this.asNumber(expectedValue);
       case '<':
-        return fieldValue < condition.value;
+        return this.asNumber(fieldValue) < this.asNumber(expectedValue);
       case '<=':
-        return fieldValue <= condition.value;
+        return this.asNumber(fieldValue) <= this.asNumber(expectedValue);
       case 'contains':
-        return String(fieldValue).includes(String(condition.value));
+        return String(fieldValue).includes(String(expectedValue));
       default:
         return false;
     }
   }
 
-  private getNestedValue(obj: any, path: string): any {
-    return path.split('.').reduce((current, key) => current?.[key], obj);
+  private getNestedValue(obj: unknown, path: string): unknown {
+    if (!obj || typeof obj !== 'object') {
+      return undefined;
+    }
+
+    return path.split('.').reduce<unknown>((current, key) => {
+      if (!current || typeof current !== 'object') {
+        return undefined;
+      }
+      return (current as Record<string, unknown>)[key];
+    }, obj);
+  }
+
+  private asNumber(value: unknown): number {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === 'string') {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+    return Number.NaN;
   }
 }
 
