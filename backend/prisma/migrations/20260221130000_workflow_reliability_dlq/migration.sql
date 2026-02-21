@@ -1,4 +1,4 @@
-﻿-- Workflow reliability + DLQ migration
+-- Workflow reliability + DLQ migration
 
 -- Rename success enum values to SUCCESS for workflow states.
 -- Guard with pg_enum checks so reruns/partial migrations remain safe.
