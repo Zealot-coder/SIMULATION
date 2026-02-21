@@ -1,5 +1,41 @@
 -- Workflow reliability + DLQ migration
 
+-- Ensure legacy environments that missed enum creation can still migrate.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_type WHERE typname = 'WorkflowStatus'
+  ) THEN
+    CREATE TYPE "WorkflowStatus" AS ENUM (
+      'PENDING',
+      'RUNNING',
+      'SUCCESS',
+      'FAILED',
+      'PARTIAL',
+      'DLQ_PENDING',
+      'PAUSED',
+      'WAITING_APPROVAL'
+    );
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_type WHERE typname = 'WorkflowStepStatus'
+  ) THEN
+    CREATE TYPE "WorkflowStepStatus" AS ENUM (
+      'PENDING',
+      'RUNNING',
+      'SUCCESS',
+      'RETRYING',
+      'DLQ',
+      'FAILED',
+      'SKIPPED'
+    );
+  END IF;
+END $$;
+
 -- Rename success enum values to SUCCESS for workflow states.
 -- Guard with pg_enum checks so reruns/partial migrations remain safe.
 DO $$
@@ -43,31 +79,39 @@ END $$;
 -- Add new run statuses.
 DO $$
 BEGIN
-  ALTER TYPE "WorkflowStatus" ADD VALUE IF NOT EXISTS 'PARTIAL';
-EXCEPTION
-  WHEN duplicate_object THEN NULL;
+  IF EXISTS (
+    SELECT 1 FROM pg_type WHERE typname = 'WorkflowStatus'
+  ) THEN
+    ALTER TYPE "WorkflowStatus" ADD VALUE IF NOT EXISTS 'PARTIAL';
+  END IF;
 END $$;
 
 DO $$
 BEGIN
-  ALTER TYPE "WorkflowStatus" ADD VALUE IF NOT EXISTS 'DLQ_PENDING';
-EXCEPTION
-  WHEN duplicate_object THEN NULL;
+  IF EXISTS (
+    SELECT 1 FROM pg_type WHERE typname = 'WorkflowStatus'
+  ) THEN
+    ALTER TYPE "WorkflowStatus" ADD VALUE IF NOT EXISTS 'DLQ_PENDING';
+  END IF;
 END $$;
 
 -- Add new step statuses.
 DO $$
 BEGIN
-  ALTER TYPE "WorkflowStepStatus" ADD VALUE IF NOT EXISTS 'RETRYING';
-EXCEPTION
-  WHEN duplicate_object THEN NULL;
+  IF EXISTS (
+    SELECT 1 FROM pg_type WHERE typname = 'WorkflowStepStatus'
+  ) THEN
+    ALTER TYPE "WorkflowStepStatus" ADD VALUE IF NOT EXISTS 'RETRYING';
+  END IF;
 END $$;
 
 DO $$
 BEGIN
-  ALTER TYPE "WorkflowStepStatus" ADD VALUE IF NOT EXISTS 'DLQ';
-EXCEPTION
-  WHEN duplicate_object THEN NULL;
+  IF EXISTS (
+    SELECT 1 FROM pg_type WHERE typname = 'WorkflowStepStatus'
+  ) THEN
+    ALTER TYPE "WorkflowStepStatus" ADD VALUE IF NOT EXISTS 'DLQ';
+  END IF;
 END $$;
 
 -- Create DLQ status enum.
