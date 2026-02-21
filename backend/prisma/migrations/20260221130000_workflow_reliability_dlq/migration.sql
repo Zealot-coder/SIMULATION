@@ -122,6 +122,54 @@ EXCEPTION
   WHEN duplicate_object THEN NULL;
 END $$;
 
+-- Ensure core workflow tables exist in legacy environments where early migrations were skipped.
+CREATE TABLE IF NOT EXISTS "WorkflowExecution" (
+  "id" TEXT NOT NULL,
+  "workflowId" TEXT NOT NULL,
+  "organizationId" TEXT NOT NULL,
+  "eventId" TEXT,
+  "status" "WorkflowStatus" NOT NULL DEFAULT 'PENDING',
+  "currentStep" INTEGER NOT NULL DEFAULT 0,
+  "input" JSONB NOT NULL DEFAULT '{}'::jsonb,
+  "output" JSONB,
+  "error" TEXT,
+  "requiresApproval" BOOLEAN NOT NULL DEFAULT false,
+  "approvedBy" TEXT,
+  "approvedAt" TIMESTAMP(3),
+  "startedAt" TIMESTAMP(3) DEFAULT CURRENT_TIMESTAMP,
+  "completedAt" TIMESTAMP(3),
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "WorkflowExecution_pkey" PRIMARY KEY ("id")
+);
+
+CREATE TABLE IF NOT EXISTS "WorkflowStep" (
+  "id" TEXT NOT NULL,
+  "executionId" TEXT NOT NULL,
+  "stepIndex" INTEGER NOT NULL,
+  "stepType" TEXT NOT NULL,
+  "status" "WorkflowStepStatus" NOT NULL DEFAULT 'PENDING',
+  "config" JSONB NOT NULL DEFAULT '{}'::jsonb,
+  "input" JSONB,
+  "output" JSONB,
+  "error" TEXT,
+  "aiRequestId" TEXT,
+  "aiConfidence" DOUBLE PRECISION,
+  "communicationId" TEXT,
+  "startedAt" TIMESTAMP(3),
+  "completedAt" TIMESTAMP(3),
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "WorkflowStep_pkey" PRIMARY KEY ("id")
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS "WorkflowStep_executionId_stepIndex_key"
+  ON "WorkflowStep"("executionId", "stepIndex");
+CREATE INDEX IF NOT EXISTS "WorkflowStep_executionId_idx"
+  ON "WorkflowStep"("executionId");
+CREATE INDEX IF NOT EXISTS "WorkflowStep_status_idx"
+  ON "WorkflowStep"("status");
+
 -- Retry/DLQ tracking fields on workflow steps.
 ALTER TABLE "WorkflowStep"
   ADD COLUMN IF NOT EXISTS "errorStack" TEXT,
@@ -136,10 +184,26 @@ ALTER TABLE "WorkflowStep"
 CREATE INDEX IF NOT EXISTS "WorkflowStep_nextRetryAt_idx" ON "WorkflowStep"("nextRetryAt");
 
 -- Idempotency support for outbound communications.
-ALTER TABLE "Communication"
-  ADD COLUMN IF NOT EXISTS "idempotencyKey" TEXT;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'Communication'
+  ) THEN
+    ALTER TABLE "Communication"
+      ADD COLUMN IF NOT EXISTS "idempotencyKey" TEXT;
+  END IF;
+END $$;
 
-CREATE UNIQUE INDEX IF NOT EXISTS "Communication_idempotencyKey_key" ON "Communication"("idempotencyKey");
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'Communication'
+  ) THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS "Communication_idempotencyKey_key" ON "Communication"("idempotencyKey");
+  END IF;
+END $$;
 
 -- DLQ table.
 CREATE TABLE IF NOT EXISTS "WorkflowStepDlqItem" (
@@ -189,6 +253,9 @@ BEGIN
     SELECT 1
     FROM pg_constraint
     WHERE conname = 'WorkflowStepDlqItem_organizationId_fkey'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'Organization'
   ) THEN
     ALTER TABLE "WorkflowStepDlqItem"
       ADD CONSTRAINT "WorkflowStepDlqItem_organizationId_fkey"
@@ -202,6 +269,9 @@ BEGIN
     SELECT 1
     FROM pg_constraint
     WHERE conname = 'WorkflowStepDlqItem_workflowExecutionId_fkey'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'WorkflowExecution'
   ) THEN
     ALTER TABLE "WorkflowStepDlqItem"
       ADD CONSTRAINT "WorkflowStepDlqItem_workflowExecutionId_fkey"
@@ -215,6 +285,9 @@ BEGIN
     SELECT 1
     FROM pg_constraint
     WHERE conname = 'WorkflowStepDlqItem_workflowStepId_fkey'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'WorkflowStep'
   ) THEN
     ALTER TABLE "WorkflowStepDlqItem"
       ADD CONSTRAINT "WorkflowStepDlqItem_workflowStepId_fkey"
