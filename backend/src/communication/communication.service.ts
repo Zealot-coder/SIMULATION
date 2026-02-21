@@ -17,19 +17,36 @@ export class CommunicationService {
   ) {}
 
   async sendMessage(dto: SendMessageDto & { organizationId: string }) {
-    // Create communication record
-    const communication = await this.prisma.communication.create({
-      data: {
-        organizationId: dto.organizationId,
-        channel: dto.channel,
-        to: dto.to,
-        toName: dto.toName,
-        content: dto.content,
-        language: dto.language || 'en',
-        templateId: dto.templateId,
-        status: CommunicationStatus.PENDING,
-      },
-    });
+    let communication = dto.idempotencyKey
+      ? await this.prisma.communication.findUnique({
+          where: { idempotencyKey: dto.idempotencyKey },
+        })
+      : null;
+
+    if (
+      communication &&
+      (communication.status === CommunicationStatus.SENT ||
+        communication.status === CommunicationStatus.DELIVERED ||
+        communication.status === CommunicationStatus.READ)
+    ) {
+      return communication;
+    }
+
+    if (!communication) {
+      communication = await this.prisma.communication.create({
+        data: {
+          organizationId: dto.organizationId,
+          channel: dto.channel,
+          to: dto.to,
+          toName: dto.toName,
+          content: dto.content,
+          language: dto.language || 'en',
+          templateId: dto.templateId,
+          status: CommunicationStatus.PENDING,
+          idempotencyKey: dto.idempotencyKey,
+        },
+      });
+    }
 
     try {
       // Send via appropriate channel

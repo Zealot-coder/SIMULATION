@@ -41,6 +41,31 @@ CREATE POLICY "service insert audit" ON audit_logs
 CREATE POLICY "admins select audit" ON audit_logs
   FOR SELECT USING (EXISTS (SELECT 1 FROM organization_members om WHERE om.user_id = auth.uid()::uuid AND om.role IN ('ORG_ADMIN','SUPER_ADMIN')));
 
+-- workflow step DLQ
+ALTER TABLE workflow_step_dlq_items ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "admins select dlq items" ON workflow_step_dlq_items
+  FOR SELECT USING (
+    can_access_org(auth.uid()::uuid, organization_id)
+    AND EXISTS (
+      SELECT 1 FROM organization_members om
+      WHERE om.user_id = auth.uid()::uuid
+      AND om.organization_id = workflow_step_dlq_items.organization_id
+      AND om.role IN ('ORG_ADMIN', 'SUPER_ADMIN')
+    )
+  );
+CREATE POLICY "admins update dlq items" ON workflow_step_dlq_items
+  FOR UPDATE USING (
+    can_access_org(auth.uid()::uuid, organization_id)
+    AND EXISTS (
+      SELECT 1 FROM organization_members om
+      WHERE om.user_id = auth.uid()::uuid
+      AND om.organization_id = workflow_step_dlq_items.organization_id
+      AND om.role IN ('ORG_ADMIN', 'SUPER_ADMIN')
+    )
+  );
+CREATE POLICY "service insert dlq items" ON workflow_step_dlq_items
+  FOR INSERT WITH CHECK (auth.role() = 'service_role');
+
 -- allow super admin to select all cross-tenant dev tables
 -- Example: event_logs
 ALTER TABLE event_logs ENABLE ROW LEVEL SECURITY;

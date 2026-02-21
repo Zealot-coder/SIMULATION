@@ -5,11 +5,7 @@ import { CorrelationContextService } from '../common/context/correlation-context
 import { AppLoggerService } from '../common/logger/app-logger.service';
 import { WorkflowMetrics } from '../common/metrics/workflow.metrics';
 import { WorkflowExecutionService } from './workflow-execution.service';
-
-interface WorkflowJobPayload {
-  executionId: string;
-  correlationId: string;
-}
+import { WorkflowJobPayload } from './workflow-job-payload';
 
 @Injectable()
 @Processor('workflows')
@@ -36,7 +32,7 @@ export class WorkflowProcessor extends WorkerHost {
       });
 
       try {
-        await this.executionService.executeWorkflow(job.data.executionId, correlationId);
+        await this.executionService.executeWorkflow(job.data);
         this.logger.info('Workflow job processed successfully', {
           service: 'workflow-processor',
           correlationId,

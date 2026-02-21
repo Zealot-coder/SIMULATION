@@ -1,27 +1,46 @@
+﻿
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable } from '@nestjs/common';
-import { AIRequestType, WorkflowStatus, WorkflowStepStatus } from '@prisma/client';
+import {
+  AIRequestType,
+  AuditAction,
+  Prisma,
+  WorkflowStatus,
+  WorkflowStepStatus,
+} from '@prisma/client';
 import { Queue } from 'bullmq';
 import * as Sentry from '@sentry/node';
 import { randomUUID } from 'node:crypto';
+import { AuditService } from '../audit/audit.service';
 import { CorrelationContextService } from '../common/context/correlation-context.service';
 import { AppLoggerService } from '../common/logger/app-logger.service';
 import { WorkflowMetrics } from '../common/metrics/workflow.metrics';
 import { CommunicationService } from '../communication/communication.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
+import {
+  calculateRetryDelayMs,
+  resolveRetryPolicy,
+  WorkflowRetryPolicyOverrides,
+} from './workflow-retry-policy';
+import { classifyWorkflowError, getErrorMessage } from './workflow-error-classifier';
+import { redactSensitiveData } from './workflow-redaction.util';
+import { WorkflowJobPayload, WorkflowReplayContext } from './workflow-job-payload';
 
 interface WorkflowStepDefinition {
   stepType: string;
   config: Record<string, unknown>;
   name?: string;
+  retryPolicy?: WorkflowRetryPolicyOverrides;
+}
+
+interface PreparedReplayContext extends WorkflowReplayContext {
+  fromStepIndex: number;
+  dlqItemId?: string;
 }
 
 @Injectable()
 export class WorkflowExecutionService {
-  private readonly maxStepAttempts = 3;
-  private readonly baseStepBackoffMs = 1000;
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly aiService: AiService,
@@ -29,6 +48,7 @@ export class WorkflowExecutionService {
     private readonly logger: AppLoggerService,
     private readonly metrics: WorkflowMetrics,
     private readonly correlationContext: CorrelationContextService,
+    private readonly auditService: AuditService,
     @InjectQueue('workflows') private readonly workflowQueue: Queue,
   ) {}
 
@@ -40,6 +60,7 @@ export class WorkflowExecutionService {
     correlationId?: string,
   ) {
     const resolvedCorrelationId = this.resolveCorrelationId(correlationId);
+
     return this.correlationContext.runWithContext(
       {
         correlationId: resolvedCorrelationId,
@@ -64,14 +85,10 @@ export class WorkflowExecutionService {
           {
             executionId: execution.id,
             correlationId: resolvedCorrelationId,
-          },
+          } satisfies WorkflowJobPayload,
           {
-            jobId: execution.id,
-            attempts: 3,
-            backoff: {
-              type: 'exponential',
-              delay: 2000,
-            },
+            jobId: `wf:${execution.id}:initial`,
+            attempts: 1,
           },
         );
 
@@ -93,34 +110,49 @@ export class WorkflowExecutionService {
     );
   }
 
-  async executeWorkflow(executionId: string, correlationId?: string): Promise<void> {
-    const resolvedCorrelationId = this.resolveCorrelationId(correlationId);
+  async executeWorkflow(jobPayload: WorkflowJobPayload): Promise<void> {
+    const resolvedCorrelationId = this.resolveCorrelationId(jobPayload.correlationId);
+
     return this.correlationContext.runWithContext(
       {
         correlationId: resolvedCorrelationId,
       },
       async () => {
-        await this.executeWorkflowInternal(executionId, resolvedCorrelationId);
+        await this.executeWorkflowInternal(
+          {
+            ...jobPayload,
+            correlationId: resolvedCorrelationId,
+          },
+          resolvedCorrelationId,
+        );
       },
     );
   }
 
-  private async executeWorkflowInternal(executionId: string, correlationId: string): Promise<void> {
+  private async executeWorkflowInternal(
+    jobPayload: WorkflowJobPayload,
+    correlationId: string,
+  ): Promise<void> {
     const execution = await this.prisma.workflowExecution.findUnique({
-      where: { id: executionId },
+      where: { id: jobPayload.executionId },
       include: {
         workflow: true,
       },
     });
 
     if (!execution) {
-      throw new Error(`Execution ${executionId} not found`);
+      throw new Error(`Execution ${jobPayload.executionId} not found`);
     }
 
-    if (execution.status !== WorkflowStatus.PENDING) {
-      this.logger.info('Workflow execution skipped because status is not pending', {
+    if (
+      !jobPayload.replay &&
+      execution.status !== WorkflowStatus.PENDING &&
+      execution.status !== WorkflowStatus.RUNNING &&
+      execution.status !== WorkflowStatus.DLQ_PENDING
+    ) {
+      this.logger.info('Workflow execution skipped because status is not executable', {
         service: 'workflow-execution',
-        executionId,
+        executionId: execution.id,
         workflowId: execution.workflowId,
         organizationId: execution.organizationId,
         status: execution.status,
@@ -132,132 +164,120 @@ export class WorkflowExecutionService {
 
     const workflowStart = Date.now();
     const steps = this.parseWorkflowSteps(execution.workflow.steps);
-    let currentOutput: unknown = execution.input;
+
+    let preparedReplay: PreparedReplayContext | undefined;
+    if (jobPayload.replay) {
+      preparedReplay = await this.prepareReplay(jobPayload.replay, execution.id, correlationId);
+    }
+
+    const startIndex = this.resolveStartIndex(execution.currentStep, steps.length, jobPayload, preparedReplay);
+    let currentOutput = await this.resolveCurrentOutput(execution.id, execution.input, startIndex);
 
     await this.prisma.workflowExecution.update({
       where: { id: execution.id },
       data: {
         status: WorkflowStatus.RUNNING,
-        startedAt: new Date(),
+        startedAt: execution.startedAt ?? new Date(),
+        completedAt: null,
       },
     });
+
     this.metrics.incrementWorkflowRun(execution.workflowId, execution.organizationId, 'RUNNING');
     await this.updateActiveWorkflowGauge(execution.organizationId);
 
     this.logger.info('Workflow execution started', {
       service: 'workflow-execution',
-      executionId,
+      executionId: execution.id,
       workflowId: execution.workflowId,
       organizationId: execution.organizationId,
       stepCount: steps.length,
+      startIndex,
       correlationId,
+      replayMode: preparedReplay?.mode,
     });
-
     try {
-      for (let index = 0; index < steps.length; index += 1) {
+      for (let index = startIndex; index < steps.length; index += 1) {
         const stepDef = steps[index];
-        const stepStartedAt = Date.now();
 
-        const step = await this.prisma.workflowStep.create({
+        const stepResult = await this.executeStepWithPersistence({
+          executionId: execution.id,
+          workflowId: execution.workflowId,
+          organizationId: execution.organizationId,
+          stepDef,
+          stepIndex: index,
+          input: currentOutput,
+          correlationId,
+          replay: preparedReplay,
+        });
+
+        if (stepResult.type === 'retry_scheduled') {
+          await this.prisma.workflowExecution.update({
+            where: { id: execution.id },
+            data: {
+              status: WorkflowStatus.RUNNING,
+              currentStep: index,
+              error: null,
+            },
+          });
+
+          return;
+        }
+
+        if (stepResult.type === 'moved_to_dlq') {
+          if (preparedReplay?.dlqItemId) {
+            await this.recordReplayOutcome(
+              preparedReplay.dlqItemId,
+              execution.organizationId,
+              preparedReplay.requestedByUserId,
+              'failed',
+              correlationId,
+            );
+          }
+
+          return;
+        }
+
+        currentOutput = stepResult.output;
+
+        await this.prisma.workflowExecution.update({
+          where: { id: execution.id },
           data: {
-            executionId: execution.id,
-            stepIndex: index,
-            stepType: stepDef.stepType,
-            config: stepDef.config as never,
-            input: currentOutput as never,
-            status: WorkflowStepStatus.RUNNING,
-            startedAt: new Date(),
+            currentStep: index + 1,
           },
         });
 
-        this.metrics.incrementWorkflowStep(stepDef.stepType, 'RUNNING');
-        this.logger.info('Workflow step started', {
-          service: 'workflow-execution',
-          executionId,
-          workflowId: execution.workflowId,
-          organizationId: execution.organizationId,
-          stepId: step.id,
-          stepIndex: index,
-          stepType: stepDef.stepType,
-        });
+        if (preparedReplay?.mode === 'STEP_ONLY') {
+          const isLastStep = index >= steps.length - 1;
 
-        try {
-          const stepOutput = await this.executeStepWithRetry(
-            stepDef,
-            currentOutput,
-            execution.organizationId,
-            execution.id,
-            index,
-          );
-
-          await this.prisma.workflowStep.update({
-            where: { id: step.id },
+          await this.prisma.workflowExecution.update({
+            where: { id: execution.id },
             data: {
-              status: WorkflowStepStatus.COMPLETED,
-              output: stepOutput as never,
+              status: isLastStep ? WorkflowStatus.SUCCESS : WorkflowStatus.PARTIAL,
+              output: currentOutput as never,
               completedAt: new Date(),
+              error: null,
             },
           });
 
-          const stepDurationSeconds = (Date.now() - stepStartedAt) / 1000;
-          this.metrics.observeWorkflowStepDuration(stepDef.stepType, stepDurationSeconds);
-          this.metrics.incrementWorkflowStep(stepDef.stepType, 'COMPLETED');
-
-          this.logger.info('Workflow step completed', {
-            service: 'workflow-execution',
-            executionId,
-            workflowId: execution.workflowId,
-            organizationId: execution.organizationId,
-            stepId: step.id,
-            stepIndex: index,
-            stepType: stepDef.stepType,
-            durationSeconds: stepDurationSeconds,
-          });
-
-          currentOutput = stepOutput;
-        } catch (error) {
-          const stepDurationSeconds = (Date.now() - stepStartedAt) / 1000;
-          const message = this.getErrorMessage(error);
-
-          await this.prisma.workflowStep.update({
-            where: { id: step.id },
-            data: {
-              status: WorkflowStepStatus.FAILED,
-              error: message,
-              completedAt: new Date(),
-            },
-          });
-
-          this.metrics.observeWorkflowStepDuration(stepDef.stepType, stepDurationSeconds);
-          this.metrics.incrementWorkflowStep(stepDef.stepType, 'FAILED');
-
-          Sentry.captureException(error, {
-            tags: {
-              service: 'workflow-execution',
-              workflowId: execution.workflowId,
-              organizationId: execution.organizationId,
-              stepType: stepDef.stepType,
-            },
-            extra: {
-              executionId: execution.id,
-              stepIndex: index,
-              stepId: step.id,
+          if (preparedReplay.dlqItemId) {
+            await this.resolveDlqItemAfterReplay(
+              preparedReplay.dlqItemId,
+              preparedReplay.requestedByUserId,
+              execution.organizationId,
               correlationId,
-            },
-          });
+              isLastStep ? 'Workflow replay completed successfully' : 'Step replay completed successfully',
+            );
 
-          this.logger.error('Workflow step failed', error, {
-            service: 'workflow-execution',
-            executionId: execution.id,
-            workflowId: execution.workflowId,
-            organizationId: execution.organizationId,
-            stepId: step.id,
-            stepIndex: index,
-            stepType: stepDef.stepType,
-            durationSeconds: stepDurationSeconds,
-          });
+            await this.recordReplayOutcome(
+              preparedReplay.dlqItemId,
+              execution.organizationId,
+              preparedReplay.requestedByUserId,
+              'success',
+              correlationId,
+            );
+          }
 
-          throw error;
+          return;
         }
       }
 
@@ -265,13 +285,33 @@ export class WorkflowExecutionService {
       await this.prisma.workflowExecution.update({
         where: { id: execution.id },
         data: {
-          status: WorkflowStatus.COMPLETED,
+          status: WorkflowStatus.SUCCESS,
           output: currentOutput as never,
           completedAt: new Date(),
+          error: null,
         },
       });
-      this.metrics.incrementWorkflowRun(execution.workflowId, execution.organizationId, 'COMPLETED');
+
+      this.metrics.incrementWorkflowRun(execution.workflowId, execution.organizationId, 'SUCCESS');
       this.metrics.observeWorkflowRunDuration(execution.workflowId, workflowDurationSeconds);
+
+      if (preparedReplay?.dlqItemId) {
+        await this.resolveDlqItemAfterReplay(
+          preparedReplay.dlqItemId,
+          preparedReplay.requestedByUserId,
+          execution.organizationId,
+          correlationId,
+          'Replay completed successfully',
+        );
+
+        await this.recordReplayOutcome(
+          preparedReplay.dlqItemId,
+          execution.organizationId,
+          preparedReplay.requestedByUserId,
+          'success',
+          correlationId,
+        );
+      }
 
       this.logger.info('Workflow execution completed', {
         service: 'workflow-execution',
@@ -281,7 +321,7 @@ export class WorkflowExecutionService {
         durationSeconds: workflowDurationSeconds,
       });
     } catch (error) {
-      const message = this.getErrorMessage(error);
+      const message = getErrorMessage(error);
 
       await this.prisma.workflowExecution.update({
         where: { id: execution.id },
@@ -320,55 +360,561 @@ export class WorkflowExecutionService {
     }
   }
 
-  private async executeStepWithRetry(
-    stepDef: WorkflowStepDefinition,
-    input: unknown,
-    organizationId: string,
-    executionId: string,
-    stepIndex: number,
-  ): Promise<unknown> {
-    for (let attempt = 1; attempt <= this.maxStepAttempts; attempt += 1) {
-      try {
-        return await this.executeStep(stepDef, input, organizationId);
-      } catch (error) {
-        const retryable = this.isRetryableError(error);
-        const remainingAttempts = this.maxStepAttempts - attempt;
+  private async executeStepWithPersistence(params: {
+    executionId: string;
+    workflowId: string;
+    organizationId: string;
+    stepDef: WorkflowStepDefinition;
+    stepIndex: number;
+    input: unknown;
+    correlationId: string;
+    replay?: PreparedReplayContext;
+  }): Promise<{ type: 'success'; output: unknown } | { type: 'retry_scheduled' } | { type: 'moved_to_dlq' }> {
+    const {
+      executionId,
+      workflowId,
+      organizationId,
+      stepDef,
+      stepIndex,
+      input,
+      correlationId,
+      replay,
+    } = params;
 
-        if (!retryable || remainingAttempts <= 0) {
-          throw error;
-        }
+    const mergedOverrides = {
+      ...(stepDef.retryPolicy || {}),
+      ...(replay?.overrideRetryPolicy || {}),
+    };
 
-        const delayMs = this.baseStepBackoffMs * 2 ** (attempt - 1);
-        this.logger.warn('Workflow step failed with retryable error; retrying', {
+    const retryPolicy = resolveRetryPolicy(stepDef.stepType, mergedOverrides);
+    const stepStartedAt = Date.now();
+
+    let step = await this.prisma.workflowStep.upsert({
+      where: {
+        executionId_stepIndex: {
+          executionId,
+          stepIndex,
+        },
+      },
+      create: {
+        executionId,
+        stepIndex,
+        stepType: stepDef.stepType,
+        config: stepDef.config as never,
+        input: input as never,
+        status: WorkflowStepStatus.PENDING,
+        maxRetries: retryPolicy.maxRetries,
+        correlationId,
+        retryPolicyOverride: Object.keys(mergedOverrides).length > 0 ? (mergedOverrides as never) : undefined,
+      },
+      update: {
+        input: input as never,
+        config: stepDef.config as never,
+        maxRetries: retryPolicy.maxRetries,
+        correlationId,
+        retryPolicyOverride:
+          Object.keys(mergedOverrides).length > 0
+            ? (mergedOverrides as never)
+            : (Prisma.DbNull as never),
+      },
+    });
+    if (step.status === WorkflowStepStatus.SUCCESS) {
+      return {
+        type: 'success',
+        output: step.output ?? input,
+      };
+    }
+
+    step = await this.prisma.workflowStep.update({
+      where: { id: step.id },
+      data: {
+        status: WorkflowStepStatus.RUNNING,
+        startedAt: new Date(),
+        completedAt: null,
+        nextRetryAt: null,
+      },
+    });
+
+    this.metrics.incrementWorkflowStepAttempt(stepDef.stepType, organizationId);
+    this.metrics.incrementWorkflowStep(stepDef.stepType, 'RUNNING');
+
+    this.logger.info('Workflow step started', {
+      service: 'workflow-execution',
+      executionId,
+      workflowId,
+      organizationId,
+      stepId: step.id,
+      stepIndex,
+      stepType: stepDef.stepType,
+      replayMode: replay?.mode,
+    });
+
+    try {
+      const stepOutput = await this.executeStep(stepDef, input, organizationId, executionId, stepIndex);
+
+      await this.prisma.workflowStep.update({
+        where: { id: step.id },
+        data: {
+          status: WorkflowStepStatus.SUCCESS,
+          output: stepOutput as never,
+          completedAt: new Date(),
+          error: null,
+          errorStack: null,
+          nextRetryAt: null,
+        },
+      });
+
+      const stepDurationSeconds = (Date.now() - stepStartedAt) / 1000;
+      this.metrics.observeWorkflowStepDuration(stepDef.stepType, stepDurationSeconds);
+      this.metrics.incrementWorkflowStep(stepDef.stepType, 'SUCCESS');
+
+      this.logger.info('Workflow step completed', {
+        service: 'workflow-execution',
+        executionId,
+        workflowId,
+        organizationId,
+        stepId: step.id,
+        stepIndex,
+        stepType: stepDef.stepType,
+        durationSeconds: stepDurationSeconds,
+      });
+
+      return {
+        type: 'success',
+        output: stepOutput,
+      };
+    } catch (error) {
+      const classification = classifyWorkflowError(error);
+      const stepDurationSeconds = (Date.now() - stepStartedAt) / 1000;
+      const attempt = step.attemptCount + 1;
+      const firstFailedAt = step.firstFailedAt ?? new Date();
+      const now = new Date();
+
+      this.metrics.observeWorkflowStepDuration(stepDef.stepType, stepDurationSeconds);
+
+      if (classification.retriable && attempt <= retryPolicy.maxRetries) {
+        const delayMs = calculateRetryDelayMs(attempt, retryPolicy);
+        const nextRetryAt = new Date(Date.now() + delayMs);
+
+        await this.prisma.workflowStep.update({
+          where: { id: step.id },
+          data: {
+            status: WorkflowStepStatus.RETRYING,
+            error: classification.message,
+            errorStack: classification.stack,
+            attemptCount: attempt,
+            maxRetries: retryPolicy.maxRetries,
+            firstFailedAt,
+            lastFailedAt: now,
+            nextRetryAt,
+            completedAt: null,
+            correlationId,
+          },
+        });
+
+        await this.workflowQueue.add(
+          'execute-workflow',
+          {
+            executionId,
+            correlationId,
+            retryStepIndex: stepIndex,
+            attempt,
+          } satisfies WorkflowJobPayload,
+          {
+            delay: delayMs,
+            attempts: 1,
+            jobId: `wf:${executionId}:s:${stepIndex}:a:${attempt}`,
+          },
+        );
+
+        await this.updateQueueDepthMetric();
+
+        this.metrics.incrementWorkflowStep(stepDef.stepType, 'RETRYING');
+        this.metrics.incrementWorkflowStepRetry(stepDef.stepType, classification.category, organizationId);
+
+        this.logger.warn('Workflow step failed with retriable error; scheduled retry', {
           service: 'workflow-execution',
           executionId,
+          workflowId,
           organizationId,
+          stepId: step.id,
           stepIndex,
           stepType: stepDef.stepType,
           attempt,
-          remainingAttempts,
+          maxRetries: retryPolicy.maxRetries,
           delayMs,
-          error: this.getErrorMessage(error),
+          nextRetryAt: nextRetryAt.toISOString(),
+          errorCategory: classification.category,
+          error: classification.message,
         });
 
-        await this.sleep(delayMs);
+        return {
+          type: 'retry_scheduled',
+        };
+      }
+
+      await this.prisma.workflowStep.update({
+        where: { id: step.id },
+        data: {
+          status: WorkflowStepStatus.DLQ,
+          error: classification.message,
+          errorStack: classification.stack,
+          attemptCount: attempt,
+          maxRetries: retryPolicy.maxRetries,
+          firstFailedAt,
+          lastFailedAt: now,
+          nextRetryAt: null,
+          completedAt: new Date(),
+          correlationId,
+        },
+      });
+
+      this.metrics.incrementWorkflowStep(stepDef.stepType, 'DLQ');
+      this.metrics.incrementWorkflowDlqMove(stepDef.stepType, classification.category, organizationId);
+
+      await this.moveStepToDlq({
+        organizationId,
+        executionId,
+        stepId: step.id,
+        stepType: stepDef.stepType,
+        failureReason: classification.message,
+        errorStack: classification.stack,
+        errorCategory: classification.category,
+        attemptCount: attempt,
+        firstFailedAt,
+        lastFailedAt: now,
+        inputPayload: step.input,
+        stepConfigSnapshot: step.config,
+        correlationId,
+      });
+
+      this.logger.error('Workflow step moved to DLQ', error, {
+        service: 'workflow-execution',
+        executionId,
+        workflowId,
+        organizationId,
+        stepId: step.id,
+        stepIndex,
+        stepType: stepDef.stepType,
+        attempt,
+        maxRetries: retryPolicy.maxRetries,
+        errorCategory: classification.category,
+      });
+
+      return {
+        type: 'moved_to_dlq',
+      };
+    }
+  }
+
+  private async moveStepToDlq(params: {
+    organizationId: string;
+    executionId: string;
+    stepId: string;
+    stepType: string;
+    failureReason: string;
+    errorStack?: string;
+    errorCategory: string;
+    attemptCount: number;
+    firstFailedAt: Date;
+    lastFailedAt: Date;
+    inputPayload: unknown;
+    stepConfigSnapshot: unknown;
+    correlationId: string;
+  }): Promise<void> {
+    const dlqItem = await this.prisma.workflowStepDlqItem.upsert({
+      where: {
+        workflowStepId: params.stepId,
+      },
+      create: {
+        organizationId: params.organizationId,
+        workflowExecutionId: params.executionId,
+        workflowStepId: params.stepId,
+        stepType: params.stepType,
+        failureReason: params.failureReason,
+        errorStack: params.errorStack,
+        errorCategory: params.errorCategory,
+        attemptCount: params.attemptCount,
+        firstFailedAt: params.firstFailedAt,
+        lastFailedAt: params.lastFailedAt,
+        inputPayload: redactSensitiveData(params.inputPayload) as never,
+        stepConfigSnapshot: redactSensitiveData(params.stepConfigSnapshot) as never,
+        correlationId: params.correlationId,
+        status: 'OPEN',
+      },
+      update: {
+        failureReason: params.failureReason,
+        errorStack: params.errorStack,
+        errorCategory: params.errorCategory,
+        attemptCount: params.attemptCount,
+        firstFailedAt: params.firstFailedAt,
+        lastFailedAt: params.lastFailedAt,
+        inputPayload: redactSensitiveData(params.inputPayload) as never,
+        stepConfigSnapshot: redactSensitiveData(params.stepConfigSnapshot) as never,
+        correlationId: params.correlationId,
+        status: 'OPEN',
+        replayOverride: Prisma.DbNull as never,
+      },
+    });
+
+    await this.prisma.workflowExecution.update({
+      where: { id: params.executionId },
+      data: {
+        status: WorkflowStatus.DLQ_PENDING,
+        error: params.failureReason,
+        completedAt: new Date(),
+      },
+    });
+
+    await this.auditService.log(
+      AuditAction.EXECUTE,
+      'WorkflowStepDlqItem',
+      dlqItem.id,
+      'Workflow step moved to DLQ',
+      {
+        organizationId: params.organizationId,
+        metadata: {
+          workflowExecutionId: params.executionId,
+          workflowStepId: params.stepId,
+          stepType: params.stepType,
+          attemptCount: params.attemptCount,
+          errorCategory: params.errorCategory,
+          correlationId: params.correlationId,
+        },
+      },
+    );
+  }
+
+  private async prepareReplay(
+    replay: WorkflowReplayContext,
+    executionId: string,
+    correlationId: string,
+  ): Promise<PreparedReplayContext> {
+    if (!replay.dlqItemId) {
+      return {
+        ...replay,
+        fromStepIndex: replay.fromStepIndex ?? 0,
+      };
+    }
+
+    const dlqItem = await this.prisma.workflowStepDlqItem.findUnique({
+      where: { id: replay.dlqItemId },
+      include: {
+        workflowStep: {
+          select: {
+            stepIndex: true,
+          },
+        },
+      },
+    });
+
+    if (!dlqItem) {
+      throw new Error(`DLQ item ${replay.dlqItemId} not found`);
+    }
+
+    const fallbackStepIndex = dlqItem.workflowStep?.stepIndex ?? 0;
+    const fromStepIndex = replay.mode === 'FROM_STEP'
+      ? Math.max(0, replay.fromStepIndex ?? fallbackStepIndex)
+      : fallbackStepIndex;
+
+    if (replay.mode === 'FROM_STEP') {
+      await this.prisma.workflowStep.updateMany({
+        where: {
+          executionId,
+          stepIndex: {
+            gte: fromStepIndex,
+          },
+        },
+        data: {
+          status: WorkflowStepStatus.PENDING,
+          output: Prisma.DbNull as never,
+          error: null,
+          errorStack: null,
+          nextRetryAt: null,
+          startedAt: null,
+          completedAt: null,
+          attemptCount: 0,
+          maxRetries: 0,
+          firstFailedAt: null,
+          lastFailedAt: null,
+          correlationId,
+        },
+      });
+    } else {
+      await this.prisma.workflowStep.updateMany({
+        where: {
+          executionId,
+          stepIndex: fallbackStepIndex,
+        },
+        data: {
+          status: WorkflowStepStatus.PENDING,
+          output: Prisma.DbNull as never,
+          error: null,
+          errorStack: null,
+          nextRetryAt: null,
+          startedAt: null,
+          completedAt: null,
+          attemptCount: 0,
+          maxRetries: 0,
+          firstFailedAt: null,
+          lastFailedAt: null,
+          correlationId,
+        },
+      });
+    }
+
+    await this.prisma.workflowExecution.update({
+      where: { id: executionId },
+      data: {
+        status: WorkflowStatus.RUNNING,
+        currentStep: fromStepIndex,
+        completedAt: null,
+        error: null,
+      },
+    });
+
+    await this.prisma.workflowStepDlqItem.update({
+      where: { id: dlqItem.id },
+      data: {
+        status: 'REPLAYING',
+      },
+    });
+
+    return {
+      ...replay,
+      dlqItemId: dlqItem.id,
+      fromStepIndex,
+    };
+  }
+
+  private async resolveDlqItemAfterReplay(
+    dlqItemId: string,
+    resolvedBy: string | undefined,
+    organizationId: string,
+    correlationId: string,
+    resolvedReason: string,
+  ): Promise<void> {
+    await this.prisma.workflowStepDlqItem.update({
+      where: { id: dlqItemId },
+      data: {
+        status: 'RESOLVED',
+        resolvedAt: new Date(),
+        resolvedBy,
+        resolvedReason,
+      },
+    });
+
+    await this.auditService.log(
+      AuditAction.UPDATE,
+      'WorkflowStepDlqItem',
+      dlqItemId,
+      'DLQ item resolved after replay',
+      {
+        organizationId,
+        userId: resolvedBy,
+        metadata: {
+          correlationId,
+          resolvedReason,
+        },
+      },
+    );
+  }
+
+  private async recordReplayOutcome(
+    dlqItemId: string,
+    organizationId: string,
+    userId: string | undefined,
+    result: 'success' | 'failed',
+    correlationId: string,
+  ): Promise<void> {
+    this.metrics.incrementWorkflowDlqReplay(result, organizationId);
+
+    await this.auditService.log(
+      AuditAction.EXECUTE,
+      'WorkflowStepDlqReplay',
+      dlqItemId,
+      `DLQ replay ${result}`,
+      {
+        organizationId,
+        userId,
+        metadata: {
+          result,
+          correlationId,
+        },
+      },
+    );
+  }
+  private resolveStartIndex(
+    currentStep: number,
+    stepCount: number,
+    jobPayload: WorkflowJobPayload,
+    replay?: PreparedReplayContext,
+  ): number {
+    if (stepCount <= 0) {
+      return 0;
+    }
+
+    if (replay) {
+      return Math.max(0, Math.min(replay.fromStepIndex, stepCount - 1));
+    }
+
+    if (Number.isFinite(jobPayload.retryStepIndex)) {
+      return Math.max(0, Math.min(jobPayload.retryStepIndex as number, stepCount - 1));
+    }
+
+    return Math.max(0, Math.min(currentStep, stepCount - 1));
+  }
+
+  private async resolveCurrentOutput(
+    executionId: string,
+    initialInput: unknown,
+    upToStepIndex: number,
+  ): Promise<unknown> {
+    if (upToStepIndex <= 0) {
+      return initialInput;
+    }
+
+    const previousSteps = await this.prisma.workflowStep.findMany({
+      where: {
+        executionId,
+        stepIndex: {
+          lt: upToStepIndex,
+        },
+      },
+      orderBy: {
+        stepIndex: 'asc',
+      },
+      select: {
+        status: true,
+        output: true,
+      },
+    });
+
+    let currentOutput = initialInput;
+    for (const step of previousSteps) {
+      if (step.status === WorkflowStepStatus.SUCCESS && step.output !== null) {
+        currentOutput = step.output;
       }
     }
 
-    throw new Error('Workflow step retry exhausted unexpectedly');
+    return currentOutput;
   }
 
   private async executeStep(
     stepDef: WorkflowStepDefinition,
     input: unknown,
     organizationId: string,
+    executionId: string,
+    stepIndex: number,
   ): Promise<unknown> {
     switch (stepDef.stepType) {
       case 'ai_process':
         return this.executeAIStep(stepDef, input, organizationId);
       case 'send_message':
-        return this.executeMessageStep(stepDef, input, organizationId);
+      case 'messaging':
+        return this.executeMessageStep(stepDef, input, organizationId, executionId, stepIndex);
       case 'update_record':
+      case 'db_write':
         return this.executeUpdateStep(stepDef, input);
       case 'wait':
         return this.executeWaitStep(stepDef, input);
@@ -406,6 +952,8 @@ export class WorkflowExecutionService {
     stepDef: WorkflowStepDefinition,
     input: unknown,
     organizationId: string,
+    executionId: string,
+    stepIndex: number,
   ): Promise<unknown> {
     const inputRecord = this.asRecord(input);
     const toTemplate = this.getOptionalString(stepDef.config.to) || '';
@@ -422,6 +970,7 @@ export class WorkflowExecutionService {
       to: this.interpolateTemplate(toTemplate, inputRecord),
       content: this.interpolateTemplate(contentTemplate, inputRecord),
       language: this.getOptionalString(stepDef.config.language) || 'en',
+      idempotencyKey: `wf:${executionId}:step:${stepIndex}`,
     });
 
     return inputRecord;
@@ -450,7 +999,6 @@ export class WorkflowExecutionService {
       approvalMessage: this.getOptionalString(stepDef.config.message) || 'Approval required',
     };
   }
-
   private interpolateTemplate(template: string, data: Record<string, unknown>): string {
     return template.replace(/\{\{(\w+(?:\.\w+)*)\}\}/g, (match, path) => {
       const value = this.getNestedValue(data, path);
@@ -488,10 +1036,13 @@ export class WorkflowExecutionService {
       return undefined;
     }
 
+    const retryPolicy = this.asRecord(record.retryPolicy);
+
     return {
       stepType,
       config: this.asRecord(record.config),
       name: this.getOptionalString(record.name),
+      retryPolicy: Object.keys(retryPolicy).length > 0 ? (retryPolicy as WorkflowRetryPolicyOverrides) : undefined,
     };
   }
 
@@ -531,30 +1082,6 @@ export class WorkflowExecutionService {
     }
 
     return AIRequestType.TEXT_UNDERSTANDING;
-  }
-
-  private isRetryableError(error: unknown): boolean {
-    const message = this.getErrorMessage(error).toLowerCase();
-    return (
-      message.includes('timeout') ||
-      message.includes('timed out') ||
-      message.includes('econnreset') ||
-      message.includes('econnrefused') ||
-      message.includes('enotfound') ||
-      message.includes('network') ||
-      message.includes('rate limit') ||
-      message.includes('429') ||
-      message.includes('503') ||
-      message.includes('502') ||
-      message.includes('504')
-    );
-  }
-
-  private getErrorMessage(error: unknown): string {
-    if (error instanceof Error) {
-      return error.message;
-    }
-    return typeof error === 'string' ? error : 'Unknown error';
   }
 
   private async updateActiveWorkflowGauge(organizationId: string): Promise<void> {
