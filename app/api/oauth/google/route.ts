@@ -19,26 +19,29 @@ function getBackendApiBase() {
   return serverApi || publicApi || fallback;
 }
 
-export async function GET() {
-  const clientId =
-    process.env.GOOGLE_CLIENT_ID || process.env.AUTH_GOOGLE_ID || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
-  const backendBase = getBackendApiBase();
+async function warmBackend(backendApiBase: string) {
+  let timeoutHandle: NodeJS.Timeout | undefined;
+  const controller = new AbortController();
 
-  // If not configured, fall back to backend-initiated OAuth.
-  if (!clientId) {
-    return NextResponse.redirect(new URL(`${backendBase}/auth/google`));
+  try {
+    timeoutHandle = setTimeout(() => controller.abort(), 8000);
+    const healthUrl = new URL("/health", backendApiBase).toString();
+    await fetch(healthUrl, {
+      method: "GET",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+  } catch {
+    // Render free instances can be asleep; ignore warm-up failures and continue OAuth flow.
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
   }
-
-  const redirectUri = `${backendBase}/auth/google/callback`;
-
-  const url = new URL("https://accounts.google.com/o/oauth2/v2/auth");
-  url.searchParams.set("client_id", clientId);
-  url.searchParams.set("redirect_uri", redirectUri);
-  url.searchParams.set("response_type", "code");
-  url.searchParams.set("scope", "email profile");
-  // Always show account chooser. Consent screen may not appear if already granted.
-  url.searchParams.set("prompt", "select_account");
-
-  return NextResponse.redirect(url);
 }
 
+export async function GET() {
+  const backendBase = getBackendApiBase();
+  await warmBackend(backendBase);
+  return NextResponse.redirect(new URL(`${backendBase}/auth/google`));
+}

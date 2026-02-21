@@ -19,23 +19,29 @@ function getBackendApiBase() {
   return serverApi || publicApi || fallback;
 }
 
-export async function GET() {
-  const clientId =
-    process.env.GITHUB_ID || process.env.GITHUB_CLIENT_ID || process.env.AUTH_GITHUB_ID || process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID;
-  const backendBase = getBackendApiBase();
+async function warmBackend(backendApiBase: string) {
+  let timeoutHandle: NodeJS.Timeout | undefined;
+  const controller = new AbortController();
 
-  // If not configured, fall back to backend-initiated OAuth.
-  if (!clientId) {
-    return NextResponse.redirect(new URL(`${backendBase}/auth/github`));
+  try {
+    timeoutHandle = setTimeout(() => controller.abort(), 8000);
+    const healthUrl = new URL("/health", backendApiBase).toString();
+    await fetch(healthUrl, {
+      method: "GET",
+      cache: "no-store",
+      signal: controller.signal,
+    });
+  } catch {
+    // Render free instances can be asleep; ignore warm-up failures and continue OAuth flow.
+  } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
   }
-
-  const redirectUri = `${backendBase}/auth/github/callback`;
-
-  const url = new URL("https://github.com/login/oauth/authorize");
-  url.searchParams.set("client_id", clientId);
-  url.searchParams.set("redirect_uri", redirectUri);
-  url.searchParams.set("scope", "user:email");
-
-  return NextResponse.redirect(url);
 }
 
+export async function GET() {
+  const backendBase = getBackendApiBase();
+  await warmBackend(backendBase);
+  return NextResponse.redirect(new URL(`${backendBase}/auth/github`));
+}
