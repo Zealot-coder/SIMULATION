@@ -37,13 +37,40 @@ import { HealthModule } from './health/health.module';
     BullModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: async (configService: ConfigService) => ({
-        connection: {
-          host: configService.get<string>('REDIS_HOST') || 'localhost',
-          port: Number(configService.get<string>('REDIS_PORT') || '6379'),
-          password: configService.get<string>('REDIS_PASSWORD') || undefined,
-        },
-      }),
+      useFactory: async (configService: ConfigService) => {
+        const redisUrl = configService.get<string>('REDIS_URL');
+        if (redisUrl) {
+          const parsed = new URL(redisUrl);
+          return {
+            connection: {
+              host: parsed.hostname,
+              port: Number(parsed.port || '6379'),
+              username: parsed.username || undefined,
+              password: parsed.password || undefined,
+              ...(parsed.protocol === 'rediss:' ? { tls: {} } : {}),
+            },
+          };
+        }
+
+        const redisHost = configService.get<string>('REDIS_HOST');
+        const redisPort = Number(configService.get<string>('REDIS_PORT') || '6379');
+        const redisPassword = configService.get<string>('REDIS_PASSWORD') || undefined;
+        const isProduction = configService.get<string>('NODE_ENV') === 'production';
+
+        if (isProduction && !redisHost) {
+          throw new Error(
+            'Redis is required in production. Set REDIS_URL or REDIS_HOST/REDIS_PORT/REDIS_PASSWORD.',
+          );
+        }
+
+        return {
+          connection: {
+            host: redisHost || 'localhost',
+            port: redisPort,
+            password: redisPassword,
+          },
+        };
+      },
     }),
     BullModule.registerQueue(
       {
