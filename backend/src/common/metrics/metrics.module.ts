@@ -61,6 +61,26 @@ import { WorkflowMetrics } from './workflow.metrics';
       help: 'Current queue depth by queue name',
       labelNames: ['queue_name'],
     }),
+    makeCounterProvider({
+      name: 'workflow_step_attempts_total',
+      help: 'Total number of workflow step attempts',
+      labelNames: ['step_type', 'organization_id'],
+    }),
+    makeCounterProvider({
+      name: 'workflow_step_retries_total',
+      help: 'Total number of workflow retries',
+      labelNames: ['step_type', 'error_category', 'organization_id'],
+    }),
+    makeCounterProvider({
+      name: 'workflow_dlq_moves_total',
+      help: 'Total number of workflow steps moved to DLQ',
+      labelNames: ['step_type', 'error_category', 'organization_id'],
+    }),
+    makeCounterProvider({
+      name: 'workflow_dlq_replays_total',
+      help: 'Total number of DLQ replay outcomes',
+      labelNames: ['result', 'organization_id'],
+    }),
     WorkflowMetrics,
   ],
   exports: [WorkflowMetrics, PrometheusModule],

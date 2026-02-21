@@ -16,6 +16,7 @@ import {
   CreditCard,
   MessageSquare,
   Settings,
+  ShieldAlert,
   Menu,
   X,
   LogOut,
@@ -39,6 +40,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { data: session } = useSession();
   const user = session?.user as any;
+  const canManageDlq =
+    user?.role === "OWNER" ||
+    user?.role === "SUPER_ADMIN" ||
+    user?.role === "ADMIN" ||
+    user?.role === "ORG_ADMIN";
+  const navigationItems = canManageDlq
+    ? [...navigation, { name: "DLQ", href: "/app/admin/dlq", icon: ShieldAlert }]
+    : navigation;
 
   return (
     <div className="min-h-screen bg-background">
@@ -89,7 +98,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
           {/* Navigation */}
           <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
-            {navigation.map((item) => {
+            {navigationItems.map((item) => {
               const isActive = pathname === item.href || pathname?.startsWith(item.href + "/");
               return (
                 <Link

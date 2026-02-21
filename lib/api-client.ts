@@ -279,6 +279,58 @@ class ApiClient {
     const query = params.toString();
     return this.request(`/admin/logs${query ? `?${query}` : ''}`);
   }
+
+  async getDlqItems(filters?: {
+    organizationId?: string;
+    stepType?: string;
+    errorCategory?: string;
+    status?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+    cursor?: string;
+  }) {
+    const params = new URLSearchParams();
+    if (filters?.organizationId) params.append('organizationId', filters.organizationId);
+    if (filters?.stepType) params.append('stepType', filters.stepType);
+    if (filters?.errorCategory) params.append('errorCategory', filters.errorCategory);
+    if (filters?.status) params.append('status', filters.status);
+    if (filters?.from) params.append('from', filters.from);
+    if (filters?.to) params.append('to', filters.to);
+    if (filters?.limit) params.append('limit', String(filters.limit));
+    if (filters?.cursor) params.append('cursor', filters.cursor);
+    const query = params.toString();
+    return this.request(`/workflow-dlq${query ? `?${query}` : ''}`);
+  }
+
+  async getDlqItem(id: string) {
+    return this.request(`/workflow-dlq/${id}`);
+  }
+
+  async replayDlqItem(
+    id: string,
+    payload: {
+      mode: 'STEP_ONLY' | 'FROM_STEP';
+      fromStepIndex?: number;
+      overrideRetryPolicy?: {
+        maxRetries?: number;
+        baseDelayMs?: number;
+        factor?: number;
+        maxDelayMs?: number;
+        jitterRatio?: number;
+      };
+    },
+  ) {
+    return this.post(`/workflow-dlq/${id}/replay`, payload);
+  }
+
+  async resolveDlqItem(id: string, reason: string) {
+    return this.post(`/workflow-dlq/${id}/resolve`, { reason });
+  }
+
+  async ignoreDlqItem(id: string, reason: string) {
+    return this.post(`/workflow-dlq/${id}/ignore`, { reason });
+  }
 }
 
 export const apiClient = new ApiClient(API_BASE_URL);

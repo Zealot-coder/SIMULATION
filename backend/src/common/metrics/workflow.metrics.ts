@@ -21,12 +21,28 @@ export class WorkflowMetrics {
     readonly activeWorkflowRuns: Gauge<'organization_id'>,
     @InjectMetric('queue_depth')
     readonly queueDepth: Gauge<'queue_name'>,
+    @InjectMetric('workflow_step_attempts_total')
+    readonly workflowStepAttemptsTotal: Counter<'step_type' | 'organization_id'>,
+    @InjectMetric('workflow_step_retries_total')
+    readonly workflowStepRetriesTotal: Counter<'step_type' | 'error_category' | 'organization_id'>,
+    @InjectMetric('workflow_dlq_moves_total')
+    readonly workflowDlqMovesTotal: Counter<'step_type' | 'error_category' | 'organization_id'>,
+    @InjectMetric('workflow_dlq_replays_total')
+    readonly workflowDlqReplaysTotal: Counter<'result' | 'organization_id'>,
   ) {}
 
   incrementWorkflowRun(
     workflowId: string,
     organizationId: string,
-    status: 'COMPLETED' | 'FAILED' | 'PENDING' | 'RUNNING',
+    status:
+      | 'SUCCESS'
+      | 'FAILED'
+      | 'PENDING'
+      | 'RUNNING'
+      | 'PARTIAL'
+      | 'DLQ_PENDING'
+      | 'PAUSED'
+      | 'WAITING_APPROVAL',
   ): void {
     this.workflowRunsTotal.inc({
       workflow_id: workflowId,
@@ -39,7 +55,10 @@ export class WorkflowMetrics {
     this.workflowRunDurationSeconds.observe({ workflow_id: workflowId }, durationSeconds);
   }
 
-  incrementWorkflowStep(stepType: string, status: 'COMPLETED' | 'FAILED' | 'RUNNING'): void {
+  incrementWorkflowStep(
+    stepType: string,
+    status: 'SUCCESS' | 'FAILED' | 'RUNNING' | 'RETRYING' | 'DLQ' | 'PENDING' | 'SKIPPED',
+  ): void {
     this.workflowStepsTotal.inc({ step_type: stepType, status });
   }
 
@@ -60,5 +79,35 @@ export class WorkflowMetrics {
 
   setQueueDepth(queueName: string, depth: number): void {
     this.queueDepth.set({ queue_name: queueName }, depth);
+  }
+
+  incrementWorkflowStepAttempt(stepType: string, organizationId: string): void {
+    this.workflowStepAttemptsTotal.inc({
+      step_type: stepType,
+      organization_id: organizationId,
+    });
+  }
+
+  incrementWorkflowStepRetry(stepType: string, errorCategory: string, organizationId: string): void {
+    this.workflowStepRetriesTotal.inc({
+      step_type: stepType,
+      error_category: errorCategory,
+      organization_id: organizationId,
+    });
+  }
+
+  incrementWorkflowDlqMove(stepType: string, errorCategory: string, organizationId: string): void {
+    this.workflowDlqMovesTotal.inc({
+      step_type: stepType,
+      error_category: errorCategory,
+      organization_id: organizationId,
+    });
+  }
+
+  incrementWorkflowDlqReplay(result: 'success' | 'failed', organizationId: string): void {
+    this.workflowDlqReplaysTotal.inc({
+      result,
+      organization_id: organizationId,
+    });
   }
 }

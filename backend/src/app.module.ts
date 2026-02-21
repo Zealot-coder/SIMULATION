@@ -49,11 +49,7 @@ import { HealthModule } from './health/health.module';
       {
         name: 'workflows',
         defaultJobOptions: {
-          attempts: 3,
-          backoff: {
-            type: 'exponential',
-            delay: 2000,
-          },
+          attempts: 1,
           removeOnComplete: 100,
           removeOnFail: 1000,
         },

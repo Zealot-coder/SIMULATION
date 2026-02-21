@@ -7,19 +7,23 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { AiModule } from '../ai/ai.module';
 import { CommunicationModule } from '../communication/communication.module';
 import { WorkflowProcessor } from './workflow.processor';
+import { AuditModule } from '../audit/audit.module';
+import { WorkflowDlqService } from './workflow-dlq.service';
+import { WorkflowDlqController } from './workflow-dlq.controller';
 
 @Module({
   imports: [
     PrismaModule,
     AiModule,
     CommunicationModule,
+    AuditModule,
     BullModule.registerQueue({
       name: 'workflows',
     }),
   ],
-  controllers: [WorkflowController],
-  providers: [WorkflowService, WorkflowExecutionService, WorkflowProcessor],
-  exports: [WorkflowService, WorkflowExecutionService],
+  controllers: [WorkflowController, WorkflowDlqController],
+  providers: [WorkflowService, WorkflowExecutionService, WorkflowProcessor, WorkflowDlqService],
+  exports: [WorkflowService, WorkflowExecutionService, WorkflowDlqService],
 })
 export class WorkflowModule {}
 

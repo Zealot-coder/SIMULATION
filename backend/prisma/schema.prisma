@@ -182,6 +182,7 @@ model Organization {
   auditLogs   AuditLog[]
   workflowExecutions WorkflowExecution[]
   automationJobs     AutomationJob[]
+  workflowStepDlqItems WorkflowStepDlqItem[]
   
   // Subscription (future)
   subscriptionTier String? @default("free")
@@ -230,8 +231,10 @@ enum EventType {
 enum WorkflowStatus {
   PENDING
   RUNNING
-  COMPLETED
+  SUCCESS
   FAILED
+  PARTIAL
+  DLQ_PENDING
   PAUSED
   WAITING_APPROVAL
 }
@@ -239,9 +242,18 @@ enum WorkflowStatus {
 enum WorkflowStepStatus {
   PENDING
   RUNNING
-  COMPLETED
+  SUCCESS
+  RETRYING
+  DLQ
   FAILED
   SKIPPED
+}
+
+enum WorkflowStepDlqStatus {
+  OPEN
+  REPLAYING
+  RESOLVED
+  IGNORED
 }
 
 model Event {
@@ -314,6 +326,7 @@ model WorkflowExecution {
   organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   event          Event?          @relation(fields: [eventId], references: [id], onDelete: SetNull)
   steps          WorkflowStep[]
+  dlqItems       WorkflowStepDlqItem[]
   
   // Audit
   startedAt      DateTime?       @default(now())
@@ -339,6 +352,14 @@ model WorkflowStep {
   input             Json?             // Input for this step
   output            Json?              // Output from this step
   error             String?           // Error if failed
+  errorStack        String?           // Full error stack for retry/DLQ
+  attemptCount      Int               @default(0)
+  maxRetries        Int               @default(0)
+  nextRetryAt       DateTime?
+  firstFailedAt     DateTime?
+  lastFailedAt      DateTime?
+  correlationId     String?
+  retryPolicyOverride Json?
   
   // AI processing
   aiRequestId       String?           // Reference to AI service request
@@ -349,6 +370,7 @@ model WorkflowStep {
   aiRequest         AIRequest?       @relation("AIRequestWorkflowSteps", fields: [aiRequestId], references: [id], onDelete: SetNull)
   communication     Communication?   @relation("CommunicationWorkflowSteps", fields: [communicationId], references: [id], onDelete: SetNull)
   communicationId  String?
+  dlqItem           WorkflowStepDlqItem?
   
   // Audit
   startedAt         DateTime?
@@ -359,6 +381,7 @@ model WorkflowStep {
   @@unique([executionId, stepIndex])
   @@index([executionId])
   @@index([status])
+  @@index([nextRetryAt])
 }
 
 // ============================================
@@ -471,6 +494,7 @@ model Communication {
   readAt         DateTime?
   error          String?
   retryCount     Int                @default(0)
+  idempotencyKey String?            @unique
   
   // Relationships
   template       MessageTemplate?   @relation(fields: [templateId], references: [id], onDelete: SetNull)
@@ -484,6 +508,42 @@ model Communication {
   @@index([channel, status])
   @@index([to])
   @@index([createdAt])
+}
+
+model WorkflowStepDlqItem {
+  id                  String                @id @default(cuid())
+  organizationId      String
+  workflowExecutionId String
+  workflowStepId      String                @unique
+  stepType            String
+  failureReason       String
+  errorStack          String?
+  errorCategory       String
+  attemptCount        Int
+  firstFailedAt       DateTime
+  lastFailedAt        DateTime
+  inputPayload        Json?
+  stepConfigSnapshot  Json?
+  correlationId       String?
+  status              WorkflowStepDlqStatus @default(OPEN)
+  resolvedReason      String?
+  resolvedBy          String?
+  resolvedAt          DateTime?
+  replayCount         Int                   @default(0)
+  lastReplayAt        DateTime?
+  lastReplayBy        String?
+  replayOverride      Json?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+
+  organization        Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workflowExecution   WorkflowExecution     @relation(fields: [workflowExecutionId], references: [id], onDelete: Cascade)
+  workflowStep        WorkflowStep          @relation(fields: [workflowStepId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, stepType, createdAt])
+  @@index([organizationId, errorCategory, createdAt])
+  @@index([workflowExecutionId])
 }
 
 // ============================================

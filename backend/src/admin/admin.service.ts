@@ -57,7 +57,7 @@ export class AdminService {
       ]);
 
     const totalRuns = executions.length;
-    const successfulRuns = executions.filter((execution) => execution.status === WorkflowStatus.COMPLETED).length;
+    const successfulRuns = executions.filter((execution) => execution.status === WorkflowStatus.SUCCESS).length;
     const completedWithDuration = executions.filter(
       (execution) => execution.startedAt && execution.completedAt,
     );
@@ -406,7 +406,7 @@ export class AdminService {
     });
 
     const byStatus = this.groupBy(executions, 'status');
-    const completed = executions.filter((e) => e.status === 'COMPLETED' && e.startedAt && e.completedAt);
+    const completed = executions.filter((e) => e.status === 'SUCCESS' && e.startedAt && e.completedAt);
     const avgExecutionTime = completed.length > 0
       ? completed.reduce((sum, e) => {
           const time = e.completedAt!.getTime() - e.startedAt!.getTime();
@@ -419,7 +419,7 @@ export class AdminService {
       total: executions.length,
       averageExecutionTime: avgExecutionTime,
       successRate: executions.length > 0
-        ? (byStatus.COMPLETED?.length || 0) / executions.length
+        ? (byStatus.SUCCESS?.length || 0) / executions.length
         : 0,
     };
   }
