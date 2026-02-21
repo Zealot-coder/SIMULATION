@@ -1,18 +1,43 @@
 ﻿-- Workflow reliability + DLQ migration
 
 -- Rename success enum values to SUCCESS for workflow states.
+-- Guard with pg_enum checks so reruns/partial migrations remain safe.
 DO $$
 BEGIN
-  ALTER TYPE "WorkflowStatus" RENAME VALUE 'COMPLETED' TO 'SUCCESS';
-EXCEPTION
-  WHEN invalid_parameter_value THEN NULL;
+  IF EXISTS (
+    SELECT 1
+    FROM pg_enum e
+    JOIN pg_type t ON t.oid = e.enumtypid
+    WHERE t.typname = 'WorkflowStatus'
+      AND e.enumlabel = 'COMPLETED'
+  ) AND NOT EXISTS (
+    SELECT 1
+    FROM pg_enum e
+    JOIN pg_type t ON t.oid = e.enumtypid
+    WHERE t.typname = 'WorkflowStatus'
+      AND e.enumlabel = 'SUCCESS'
+  ) THEN
+    ALTER TYPE "WorkflowStatus" RENAME VALUE 'COMPLETED' TO 'SUCCESS';
+  END IF;
 END $$;
 
 DO $$
 BEGIN
-  ALTER TYPE "WorkflowStepStatus" RENAME VALUE 'COMPLETED' TO 'SUCCESS';
-EXCEPTION
-  WHEN invalid_parameter_value THEN NULL;
+  IF EXISTS (
+    SELECT 1
+    FROM pg_enum e
+    JOIN pg_type t ON t.oid = e.enumtypid
+    WHERE t.typname = 'WorkflowStepStatus'
+      AND e.enumlabel = 'COMPLETED'
+  ) AND NOT EXISTS (
+    SELECT 1
+    FROM pg_enum e
+    JOIN pg_type t ON t.oid = e.enumtypid
+    WHERE t.typname = 'WorkflowStepStatus'
+      AND e.enumlabel = 'SUCCESS'
+  ) THEN
+    ALTER TYPE "WorkflowStepStatus" RENAME VALUE 'COMPLETED' TO 'SUCCESS';
+  END IF;
 END $$;
 
 -- Add new run statuses.
