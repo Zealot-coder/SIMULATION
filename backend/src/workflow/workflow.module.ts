@@ -10,6 +10,7 @@ import { WorkflowProcessor } from './workflow.processor';
 import { AuditModule } from '../audit/audit.module';
 import { WorkflowDlqService } from './workflow-dlq.service';
 import { WorkflowDlqController } from './workflow-dlq.controller';
+import { WorkflowStepDedupService } from './workflow-step-dedup.service';
 
 @Module({
   imports: [
@@ -22,7 +23,13 @@ import { WorkflowDlqController } from './workflow-dlq.controller';
     }),
   ],
   controllers: [WorkflowController, WorkflowDlqController],
-  providers: [WorkflowService, WorkflowExecutionService, WorkflowProcessor, WorkflowDlqService],
+  providers: [
+    WorkflowService,
+    WorkflowExecutionService,
+    WorkflowProcessor,
+    WorkflowDlqService,
+    WorkflowStepDedupService,
+  ],
   exports: [WorkflowService, WorkflowExecutionService, WorkflowDlqService],
 })
 export class WorkflowModule {}

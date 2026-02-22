@@ -270,7 +270,18 @@ class ApiClient {
     action?: string;
     userId?: string;
     limit?: number;
-  }) {
+  }): Promise<
+    Array<{
+      id: string;
+      action: string;
+      entityType: string;
+      entityId?: string | null;
+      description: string;
+      metadata?: Record<string, unknown> | null;
+      createdAt: string;
+      organization?: { id: string; name: string } | null;
+    }>
+  > {
     const params = new URLSearchParams();
     if (filters?.entityType) params.append('entityType', filters.entityType);
     if (filters?.action) params.append('action', filters.action);

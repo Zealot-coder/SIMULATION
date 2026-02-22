@@ -15,4 +15,9 @@ export interface RequestWithContext extends Request {
   user?: AuthenticatedUser;
   organization?: OrganizationContext;
   membership?: Record<string, unknown>;
+  idempotency?: {
+    key?: string;
+    status?: 'MISS' | 'HIT' | 'IN_PROGRESS' | 'CONFLICT';
+    scope?: string;
+  };
 }

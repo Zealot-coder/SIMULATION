@@ -26,6 +26,7 @@ import {
 import { classifyWorkflowError, getErrorMessage } from './workflow-error-classifier';
 import { redactSensitiveData } from './workflow-redaction.util';
 import { WorkflowJobPayload, WorkflowReplayContext } from './workflow-job-payload';
+import { WorkflowStepDedupService } from './workflow-step-dedup.service';
 
 interface WorkflowStepDefinition {
   stepType: string;
@@ -45,6 +46,7 @@ export class WorkflowExecutionService {
     private readonly prisma: PrismaService,
     private readonly aiService: AiService,
     private readonly communicationService: CommunicationService,
+    private readonly workflowStepDedupService: WorkflowStepDedupService,
     private readonly logger: AppLoggerService,
     private readonly metrics: WorkflowMetrics,
     private readonly correlationContext: CorrelationContextService,
@@ -449,8 +451,84 @@ export class WorkflowExecutionService {
       replayMode: replay?.mode,
     });
 
+    const dedup = await this.workflowStepDedupService.acquire({
+      organizationId,
+      workflowRunId: executionId,
+      stepKey: String(stepIndex),
+      input,
+    });
+
+    if (dedup.type === 'done') {
+      await this.prisma.workflowStep.update({
+        where: { id: step.id },
+        data: {
+          status: WorkflowStepStatus.SUCCESS,
+          output: (dedup.result ?? input) as never,
+          completedAt: new Date(),
+          error: null,
+          errorStack: null,
+          nextRetryAt: null,
+        },
+      });
+
+      const stepDurationSeconds = (Date.now() - stepStartedAt) / 1000;
+      this.metrics.observeWorkflowStepDuration(stepDef.stepType, stepDurationSeconds);
+      this.metrics.incrementWorkflowStep(stepDef.stepType, 'SUCCESS');
+
+      this.logger.info('Workflow step deduplicated using existing done result', {
+        service: 'workflow-execution',
+        executionId,
+        workflowId,
+        organizationId,
+        stepId: step.id,
+        stepIndex,
+        stepType: stepDef.stepType,
+      });
+
+      return {
+        type: 'success',
+        output: dedup.result ?? input,
+      };
+    }
+
+    if (dedup.type === 'locked') {
+      const lockRetryDelayMs = 1000;
+
+      await this.workflowQueue.add(
+        'execute-workflow',
+        {
+          executionId,
+          correlationId,
+          retryStepIndex: stepIndex,
+        } satisfies WorkflowJobPayload,
+        {
+          delay: lockRetryDelayMs,
+          attempts: 1,
+          jobId: `wf:${executionId}:s:${stepIndex}:locked:${Date.now()}`,
+        },
+      );
+
+      await this.updateQueueDepthMetric();
+
+      this.logger.warn('Workflow step dedup lock exists; requeued for later execution', {
+        service: 'workflow-execution',
+        executionId,
+        workflowId,
+        organizationId,
+        stepId: step.id,
+        stepIndex,
+        stepType: stepDef.stepType,
+        lockRetryDelayMs,
+      });
+
+      return {
+        type: 'retry_scheduled',
+      };
+    }
+
     try {
       const stepOutput = await this.executeStep(stepDef, input, organizationId, executionId, stepIndex);
+      await this.workflowStepDedupService.markDone(dedup.lockId, stepOutput);
 
       await this.prisma.workflowStep.update({
         where: { id: step.id },
@@ -484,6 +562,20 @@ export class WorkflowExecutionService {
         output: stepOutput,
       };
     } catch (error) {
+      try {
+        await this.workflowStepDedupService.releaseLock(dedup.lockId);
+      } catch (releaseError) {
+        this.logger.warn('Failed to release step dedup lock after step failure', {
+          service: 'workflow-execution',
+          executionId,
+          workflowId,
+          organizationId,
+          stepId: step.id,
+          stepIndex,
+          stepType: stepDef.stepType,
+          releaseError: getErrorMessage(releaseError),
+        });
+      }
       const classification = classifyWorkflowError(error);
       const stepDurationSeconds = (Date.now() - stepStartedAt) / 1000;
       const attempt = step.attemptCount + 1;

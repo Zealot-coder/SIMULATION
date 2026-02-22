@@ -29,6 +29,16 @@ export class WorkflowMetrics {
     readonly workflowDlqMovesTotal: Counter<'step_type' | 'error_category' | 'organization_id'>,
     @InjectMetric('workflow_dlq_replays_total')
     readonly workflowDlqReplaysTotal: Counter<'result' | 'organization_id'>,
+    @InjectMetric('idempotency_hit')
+    readonly idempotencyHit: Counter<'scope' | 'result'>,
+    @InjectMetric('idempotency_miss')
+    readonly idempotencyMiss: Counter<'scope'>,
+    @InjectMetric('webhook_duplicate')
+    readonly webhookDuplicate: Counter<'provider' | 'organization_id'>,
+    @InjectMetric('step_duplicate')
+    readonly stepDuplicate: Counter<'reason' | 'organization_id'>,
+    @InjectMetric('payment_duplicate')
+    readonly paymentDuplicate: Counter<'scope' | 'organization_id'>,
   ) {}
 
   incrementWorkflowRun(
@@ -107,6 +117,40 @@ export class WorkflowMetrics {
   incrementWorkflowDlqReplay(result: 'success' | 'failed', organizationId: string): void {
     this.workflowDlqReplaysTotal.inc({
       result,
+      organization_id: organizationId,
+    });
+  }
+
+  incrementIdempotencyHit(scope: string, result: string): void {
+    this.idempotencyHit.inc({
+      scope,
+      result,
+    });
+  }
+
+  incrementIdempotencyMiss(scope: string): void {
+    this.idempotencyMiss.inc({
+      scope,
+    });
+  }
+
+  incrementWebhookDuplicate(provider: string, organizationId: string): void {
+    this.webhookDuplicate.inc({
+      provider,
+      organization_id: organizationId,
+    });
+  }
+
+  incrementStepDuplicate(reason: string, organizationId: string): void {
+    this.stepDuplicate.inc({
+      reason,
+      organization_id: organizationId,
+    });
+  }
+
+  incrementPaymentDuplicate(scope: string, organizationId: string): void {
+    this.paymentDuplicate.inc({
+      scope,
       organization_id: organizationId,
     });
   }

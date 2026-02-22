@@ -307,11 +307,21 @@ describe('workflow-dlq integration', () => {
     const auditService = {
       log: jest.fn(async () => undefined),
     };
+    const workflowStepDedupService = {
+      acquire: jest.fn(async ({ stepKey }: { stepKey: string }) => ({
+        type: 'acquired',
+        lockId: `lock-${stepKey}-${Date.now()}`,
+        inputHash: 'hash',
+      })),
+      markDone: jest.fn(async () => undefined),
+      releaseLock: jest.fn(async () => undefined),
+    };
 
     const service = new WorkflowExecutionService(
       prisma as any,
       {} as any,
       {} as any,
+      workflowStepDedupService as any,
       logger as any,
       metrics as any,
       correlationContext as any,

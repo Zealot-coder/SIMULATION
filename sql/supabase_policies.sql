@@ -66,6 +66,39 @@ CREATE POLICY "admins update dlq items" ON workflow_step_dlq_items
 CREATE POLICY "service insert dlq items" ON workflow_step_dlq_items
   FOR INSERT WITH CHECK (auth.role() = 'service_role');
 
+-- idempotency keys
+ALTER TABLE idempotency_keys ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "members select idempotency keys" ON idempotency_keys
+  FOR SELECT USING (
+    can_access_org(auth.uid()::uuid, organization_id)
+    OR auth.role() = 'service_role'
+  );
+CREATE POLICY "service mutate idempotency keys" ON idempotency_keys
+  FOR ALL USING (auth.role() = 'service_role')
+  WITH CHECK (auth.role() = 'service_role');
+
+-- webhook dedup
+ALTER TABLE webhook_dedup ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "members select webhook dedup" ON webhook_dedup
+  FOR SELECT USING (
+    can_access_org(auth.uid()::uuid, organization_id)
+    OR auth.role() = 'service_role'
+  );
+CREATE POLICY "service mutate webhook dedup" ON webhook_dedup
+  FOR ALL USING (auth.role() = 'service_role')
+  WITH CHECK (auth.role() = 'service_role');
+
+-- step dedup
+ALTER TABLE step_dedup ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "members select step dedup" ON step_dedup
+  FOR SELECT USING (
+    can_access_org(auth.uid()::uuid, organization_id)
+    OR auth.role() = 'service_role'
+  );
+CREATE POLICY "service mutate step dedup" ON step_dedup
+  FOR ALL USING (auth.role() = 'service_role')
+  WITH CHECK (auth.role() = 'service_role');
+
 -- allow super admin to select all cross-tenant dev tables
 -- Example: event_logs
 ALTER TABLE event_logs ENABLE ROW LEVEL SECURITY;

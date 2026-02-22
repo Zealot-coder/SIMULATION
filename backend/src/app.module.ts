@@ -12,6 +12,8 @@ import { RequestContextInterceptor } from './common/interceptors/request-context
 import { LoggerModule } from './common/logger/logger.module';
 import { MetricsModule } from './common/metrics/metrics.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { IdempotencyModule } from './idempotency/idempotency.module';
+import { IdempotencyInterceptor } from './idempotency/idempotency.interceptor';
 import { AuthModule } from './auth/auth.module';
 import { OrganizationModule } from './organization/organization.module';
 import { EventModule } from './event/event.module';
@@ -22,6 +24,7 @@ import { AuditModule } from './audit/audit.module';
 import { AdminModule } from './admin/admin.module';
 import { AutomationModule } from './automation/automation.module';
 import { HealthModule } from './health/health.module';
+import { WebhookModule } from './webhook/webhook.module';
 
 @Module({
   imports: [
@@ -33,6 +36,7 @@ import { HealthModule } from './health/health.module';
 
     LoggerModule,
     MetricsModule,
+    IdempotencyModule,
 
     BullModule.forRootAsync({
       imports: [ConfigModule],
@@ -109,6 +113,7 @@ import { HealthModule } from './health/health.module';
     AdminModule,
     AutomationModule,
     HealthModule,
+    WebhookModule,
   ],
   controllers: [AppController],
   providers: [
@@ -117,6 +122,10 @@ import { HealthModule } from './health/health.module';
     {
       provide: APP_INTERCEPTOR,
       useClass: RequestContextInterceptor,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: IdempotencyInterceptor,
     },
   ],
 })

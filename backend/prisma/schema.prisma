@@ -183,6 +183,9 @@ model Organization {
   workflowExecutions WorkflowExecution[]
   automationJobs     AutomationJob[]
   workflowStepDlqItems WorkflowStepDlqItem[]
+  idempotencyKeys      IdempotencyKey[]
+  webhookDedupItems    WebhookDedup[]
+  stepDedupItems       StepDedup[]
   
   // Subscription (future)
   subscriptionTier String? @default("free")
@@ -256,6 +259,17 @@ enum WorkflowStepDlqStatus {
   IGNORED
 }
 
+enum IdempotencyStatus {
+  IN_PROGRESS
+  COMPLETED
+  FAILED
+}
+
+enum StepDedupStatus {
+  LOCKED
+  DONE
+}
+
 model Event {
   id             String    @id @default(cuid())
   organizationId String
@@ -327,6 +341,7 @@ model WorkflowExecution {
   event          Event?          @relation(fields: [eventId], references: [id], onDelete: SetNull)
   steps          WorkflowStep[]
   dlqItems       WorkflowStepDlqItem[]
+  stepDedupEntries StepDedup[]
   
   // Audit
   startedAt      DateTime?       @default(now())
@@ -544,6 +559,68 @@ model WorkflowStepDlqItem {
   @@index([organizationId, stepType, createdAt])
   @@index([organizationId, errorCategory, createdAt])
   @@index([workflowExecutionId])
+}
+
+model IdempotencyKey {
+  id                 String            @id @default(cuid())
+  organizationId     String
+  actorUserId        String?
+  scope              String
+  key                String
+  requestFingerprint String
+  status             IdempotencyStatus @default(IN_PROGRESS)
+  responseCode       Int?
+  responseBody       Json?
+  errorBody          Json?
+  lockedAt           DateTime          @default(now())
+  expiresAt          DateTime          @default(dbgenerated("(now() + interval '24 hours')"))
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  organization       Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, scope, key])
+  @@index([expiresAt])
+  @@index([status, lockedAt])
+  @@index([organizationId, actorUserId])
+}
+
+model WebhookDedup {
+  id             String       @id @default(cuid())
+  organizationId String
+  provider       String
+  dedupKey       String
+  firstSeenAt    DateTime     @default(now())
+  expiresAt      DateTime     @default(dbgenerated("(now() + interval '24 hours')"))
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, provider, dedupKey])
+  @@index([expiresAt])
+}
+
+model StepDedup {
+  id             String          @id @default(cuid())
+  organizationId String
+  workflowRunId  String
+  stepKey        String
+  inputHash      String
+  status         StepDedupStatus @default(LOCKED)
+  result         Json?
+  lockedAt       DateTime        @default(now())
+  expiresAt      DateTime        @default(dbgenerated("(now() + interval '24 hours')"))
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workflowRun    WorkflowExecution @relation(fields: [workflowRunId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, workflowRunId, stepKey, inputHash])
+  @@index([expiresAt])
+  @@index([status, lockedAt])
+  @@index([workflowRunId])
 }
 
 // ============================================

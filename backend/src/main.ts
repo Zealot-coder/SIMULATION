@@ -60,7 +60,14 @@ async function bootstrap() {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Correlation-Id'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Correlation-Id',
+      'Idempotency-Key',
+      'X-Webhook-Signature',
+      'X-Webhook-Timestamp',
+    ],
   });
 
   const port = process.env.PORT || 3001;

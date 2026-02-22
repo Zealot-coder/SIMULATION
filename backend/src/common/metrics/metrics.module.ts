@@ -81,6 +81,31 @@ import { WorkflowMetrics } from './workflow.metrics';
       help: 'Total number of DLQ replay outcomes',
       labelNames: ['result', 'organization_id'],
     }),
+    makeCounterProvider({
+      name: 'idempotency_hit',
+      help: 'Idempotency cache hits by scope and decision',
+      labelNames: ['scope', 'result'],
+    }),
+    makeCounterProvider({
+      name: 'idempotency_miss',
+      help: 'Idempotency misses by scope',
+      labelNames: ['scope'],
+    }),
+    makeCounterProvider({
+      name: 'webhook_duplicate',
+      help: 'Duplicate webhook requests detected',
+      labelNames: ['provider', 'organization_id'],
+    }),
+    makeCounterProvider({
+      name: 'step_duplicate',
+      help: 'Duplicate step executions detected',
+      labelNames: ['reason', 'organization_id'],
+    }),
+    makeCounterProvider({
+      name: 'payment_duplicate',
+      help: 'Duplicate payment signals detected',
+      labelNames: ['scope', 'organization_id'],
+    }),
     WorkflowMetrics,
   ],
   exports: [WorkflowMetrics, PrometheusModule],
