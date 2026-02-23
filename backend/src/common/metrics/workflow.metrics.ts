@@ -47,6 +47,7 @@ export class WorkflowMetrics {
     status:
       | 'SUCCESS'
       | 'FAILED'
+      | 'FAILED_SAFETY_LIMIT'
       | 'PENDING'
       | 'RUNNING'
       | 'PARTIAL'

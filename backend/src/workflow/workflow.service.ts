@@ -2,11 +2,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { EventType } from '@prisma/client';
+import { AuditAction, EventType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateWorkflowDto } from './dto/create-workflow.dto';
 import { WorkflowExecutionService } from './workflow-execution.service';
 import { CorrelationContextService } from '../common/context/correlation-context.service';
+import { GovernanceService } from '../governance/governance.service';
+import { AuditService } from '../audit/audit.service';
 
 @Injectable()
 export class WorkflowService {
@@ -14,9 +16,17 @@ export class WorkflowService {
     private readonly prisma: PrismaService,
     private readonly executionService: WorkflowExecutionService,
     private readonly correlationContext: CorrelationContextService,
+    private readonly governanceService: GovernanceService,
+    private readonly auditService: AuditService,
   ) {}
 
-  async create(organizationId: string, dto: CreateWorkflowDto) {
+  async create(organizationId: string, dto: CreateWorkflowDto, actorUserId?: string) {
+    await this.governanceService.validateWorkflowDefinition({
+      organizationId,
+      steps: dto.steps,
+      actorUserId,
+    });
+
     const workflow = await this.prisma.workflow.create({
       data: {
         organizationId,
@@ -28,6 +38,21 @@ export class WorkflowService {
         isActive: dto.isActive ?? true,
       },
     });
+
+    await this.auditService.log(
+      AuditAction.CREATE,
+      'Workflow',
+      workflow.id,
+      'Workflow created',
+      {
+        organizationId,
+        userId: actorUserId,
+        metadata: {
+          workflowName: workflow.name,
+          stepCount: Array.isArray(dto.steps) ? dto.steps.length : 0,
+        },
+      },
+    );
 
     return workflow;
   }
@@ -60,7 +85,12 @@ export class WorkflowService {
     return workflow;
   }
 
-  async update(id: string, organizationId: string, dto: Partial<CreateWorkflowDto>) {
+  async update(
+    id: string,
+    organizationId: string,
+    dto: Partial<CreateWorkflowDto>,
+    actorUserId?: string,
+  ) {
     const workflow = await this.prisma.workflow.findFirst({
       where: { id, organizationId },
     });
@@ -69,7 +99,15 @@ export class WorkflowService {
       throw new NotFoundException('Workflow not found');
     }
 
-    return this.prisma.workflow.update({
+    const resolvedSteps = dto.steps ?? (workflow.steps as unknown);
+    await this.governanceService.validateWorkflowDefinition({
+      organizationId,
+      workflowId: id,
+      steps: resolvedSteps,
+      actorUserId,
+    });
+
+    const updated = await this.prisma.workflow.update({
       where: { id },
       data: {
         name: dto.name,
@@ -80,6 +118,23 @@ export class WorkflowService {
         isActive: dto.isActive,
       },
     });
+
+    await this.auditService.log(
+      AuditAction.UPDATE,
+      'Workflow',
+      updated.id,
+      'Workflow updated',
+      {
+        organizationId,
+        userId: actorUserId,
+        metadata: {
+          workflowName: updated.name,
+          stepCount: Array.isArray(resolvedSteps) ? resolvedSteps.length : 0,
+        },
+      },
+    );
+
+    return updated;
   }
 
   async triggerWorkflowsForEvent(

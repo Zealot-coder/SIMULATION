@@ -6,9 +6,10 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { OpenAIProvider } from './providers/openai.provider';
 import { MockAIProvider } from './providers/mock.provider';
 import { AIProvider } from './providers/ai-provider.interface';
+import { GovernanceModule } from '../governance/governance.module';
 
 @Module({
-  imports: [PrismaModule, ConfigModule],
+  imports: [PrismaModule, ConfigModule, GovernanceModule],
   controllers: [AiController],
   providers: [
     AiService,

@@ -16,6 +16,8 @@ import { CorrelationContextService } from '../common/context/correlation-context
 import { AppLoggerService } from '../common/logger/app-logger.service';
 import { WorkflowMetrics } from '../common/metrics/workflow.metrics';
 import { CommunicationService } from '../communication/communication.service';
+import { GovernanceService } from '../governance/governance.service';
+import { GovernanceErrorCode } from '../governance/governance-error-codes';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
 import {
@@ -51,6 +53,7 @@ export class WorkflowExecutionService {
     private readonly metrics: WorkflowMetrics,
     private readonly correlationContext: CorrelationContextService,
     private readonly auditService: AuditService,
+    private readonly governanceService: GovernanceService,
     @InjectQueue('workflows') private readonly workflowQueue: Queue,
   ) {}
 
@@ -69,6 +72,8 @@ export class WorkflowExecutionService {
         organizationId,
       },
       async () => {
+        await this.governanceService.consumeWorkflowRunQuota(organizationId);
+
         const execution = await this.prisma.workflowExecution.create({
           data: {
             workflowId,
@@ -165,15 +170,83 @@ export class WorkflowExecutionService {
     this.correlationContext.setOrganizationId(execution.organizationId);
 
     const workflowStart = Date.now();
+    const limits = await this.governanceService.resolveEffectiveLimits(execution.organizationId);
     const steps = this.parseWorkflowSteps(execution.workflow.steps);
+    const startedAtMs = (execution.startedAt || execution.createdAt || new Date()).getTime();
+
+    if (steps.length > limits.maxWorkflowSteps) {
+      await this.failExecutionForSafetyLimit({
+        execution,
+        limitCode: GovernanceErrorCode.MAX_STEPS_EXCEEDED,
+        error: `Workflow has ${steps.length} steps but plan allows at most ${limits.maxWorkflowSteps}.`,
+        correlationId,
+        details: {
+          stepCount: steps.length,
+          maxWorkflowSteps: limits.maxWorkflowSteps,
+        },
+      });
+      return;
+    }
 
     let preparedReplay: PreparedReplayContext | undefined;
     if (jobPayload.replay) {
       preparedReplay = await this.prepareReplay(jobPayload.replay, execution.id, correlationId);
     }
 
+    let concurrencySlotHeld = execution.concurrencySlotHeld;
+    let shouldReleaseConcurrencySlot = false;
+
+    if (!concurrencySlotHeld) {
+      const concurrentSlot = await this.governanceService.tryAcquireConcurrentRunSlot(
+        execution.organizationId,
+      );
+
+      if (!concurrentSlot.acquired) {
+        await this.governanceService.recordSafetyViolation({
+          organizationId: execution.organizationId,
+          workflowId: execution.workflowId,
+          workflowExecutionId: execution.id,
+          limitCode: GovernanceErrorCode.CONCURRENT_LIMIT_EXCEEDED,
+          actionTaken: 'execution_requeued',
+          details: {
+            current: concurrentSlot.current,
+            limit: concurrentSlot.limit,
+            retryDelayMs: concurrentSlot.retryDelayMs,
+          },
+        });
+
+        await this.workflowQueue.add(
+          'execute-workflow',
+          {
+            ...jobPayload,
+            correlationId,
+          },
+          {
+            delay: concurrentSlot.retryDelayMs,
+            attempts: 1,
+            jobId: `wf:${execution.id}:concurrent:${Date.now()}`,
+          },
+        );
+        await this.updateQueueDepthMetric();
+
+        this.logger.warn('Concurrent workflow limit reached; execution requeued', {
+          service: 'workflow-execution',
+          executionId: execution.id,
+          workflowId: execution.workflowId,
+          organizationId: execution.organizationId,
+          current: concurrentSlot.current,
+          limit: concurrentSlot.limit,
+          retryDelayMs: concurrentSlot.retryDelayMs,
+        });
+        return;
+      }
+
+      concurrencySlotHeld = true;
+    }
+
     const startIndex = this.resolveStartIndex(execution.currentStep, steps.length, jobPayload, preparedReplay);
     let currentOutput = await this.resolveCurrentOutput(execution.id, execution.input, startIndex);
+    let iterationCount = execution.iterationCount;
 
     await this.prisma.workflowExecution.update({
       where: { id: execution.id },
@@ -181,6 +254,7 @@ export class WorkflowExecutionService {
         status: WorkflowStatus.RUNNING,
         startedAt: execution.startedAt ?? new Date(),
         completedAt: null,
+        concurrencySlotHeld,
       },
     });
 
@@ -196,9 +270,53 @@ export class WorkflowExecutionService {
       startIndex,
       correlationId,
       replayMode: preparedReplay?.mode,
+      maxExecutionTimeMs: limits.maxExecutionTimeMs,
+      maxStepIterations: limits.maxStepIterations,
     });
     try {
       for (let index = startIndex; index < steps.length; index += 1) {
+        if (Date.now() - startedAtMs > limits.maxExecutionTimeMs) {
+          await this.failExecutionForSafetyLimit({
+            execution,
+            limitCode: GovernanceErrorCode.WORKFLOW_TIMEOUT,
+            error: `Workflow execution exceeded max runtime of ${limits.maxExecutionTimeMs}ms.`,
+            correlationId,
+            details: {
+              elapsedMs: Date.now() - startedAtMs,
+              maxExecutionTimeMs: limits.maxExecutionTimeMs,
+              stepIndex: index,
+            },
+            replay: preparedReplay,
+          });
+          shouldReleaseConcurrencySlot = true;
+          return;
+        }
+
+        iterationCount += 1;
+        if (iterationCount > limits.maxStepIterations) {
+          await this.failExecutionForSafetyLimit({
+            execution,
+            limitCode: GovernanceErrorCode.STEP_ITERATION_LIMIT_EXCEEDED,
+            error: `Workflow iteration cap exceeded (${limits.maxStepIterations}).`,
+            correlationId,
+            details: {
+              iterationCount,
+              maxStepIterations: limits.maxStepIterations,
+              stepIndex: index,
+            },
+            replay: preparedReplay,
+          });
+          shouldReleaseConcurrencySlot = true;
+          return;
+        }
+
+        await this.prisma.workflowExecution.update({
+          where: { id: execution.id },
+          data: {
+            iterationCount,
+          },
+        });
+
         const stepDef = steps[index];
 
         const stepResult = await this.executeStepWithPersistence({
@@ -226,6 +344,7 @@ export class WorkflowExecutionService {
         }
 
         if (stepResult.type === 'moved_to_dlq') {
+          shouldReleaseConcurrencySlot = true;
           if (preparedReplay?.dlqItemId) {
             await this.recordReplayOutcome(
               preparedReplay.dlqItemId,
@@ -279,6 +398,7 @@ export class WorkflowExecutionService {
             );
           }
 
+          shouldReleaseConcurrencySlot = true;
           return;
         }
       }
@@ -322,6 +442,7 @@ export class WorkflowExecutionService {
         organizationId: execution.organizationId,
         durationSeconds: workflowDurationSeconds,
       });
+      shouldReleaseConcurrencySlot = true;
     } catch (error) {
       const message = getErrorMessage(error);
 
@@ -355,11 +476,85 @@ export class WorkflowExecutionService {
         organizationId: execution.organizationId,
       });
 
+      shouldReleaseConcurrencySlot = true;
       throw error;
     } finally {
+      if (shouldReleaseConcurrencySlot && concurrencySlotHeld) {
+        await this.governanceService.releaseConcurrentRunSlot(execution.organizationId);
+        await this.prisma.workflowExecution.updateMany({
+          where: {
+            id: execution.id,
+            concurrencySlotHeld: true,
+          },
+          data: {
+            concurrencySlotHeld: false,
+          },
+        });
+      }
+
       await this.updateActiveWorkflowGauge(execution.organizationId);
       await this.updateQueueDepthMetric();
     }
+  }
+
+  private async failExecutionForSafetyLimit(params: {
+    execution: {
+      id: string;
+      workflowId: string;
+      organizationId: string;
+    };
+    limitCode: GovernanceErrorCode;
+    error: string;
+    correlationId: string;
+    details?: Record<string, unknown>;
+    replay?: PreparedReplayContext;
+  }): Promise<void> {
+    await this.prisma.workflowExecution.update({
+      where: { id: params.execution.id },
+      data: {
+        status: WorkflowStatus.FAILED_SAFETY_LIMIT,
+        error: params.error,
+        safetyLimitCode: params.limitCode,
+        completedAt: new Date(),
+      },
+    });
+
+    this.metrics.incrementWorkflowRun(
+      params.execution.workflowId,
+      params.execution.organizationId,
+      'FAILED_SAFETY_LIMIT',
+    );
+
+    await this.governanceService.recordSafetyViolation({
+      organizationId: params.execution.organizationId,
+      workflowId: params.execution.workflowId,
+      workflowExecutionId: params.execution.id,
+      limitCode: params.limitCode,
+      actionTaken: 'execution_stopped',
+      details: {
+        correlationId: params.correlationId,
+        ...params.details,
+      },
+    });
+
+    if (params.replay?.dlqItemId) {
+      await this.recordReplayOutcome(
+        params.replay.dlqItemId,
+        params.execution.organizationId,
+        params.replay.requestedByUserId,
+        'failed',
+        params.correlationId,
+      );
+    }
+
+    this.logger.warn('Workflow execution stopped by safety limit', {
+      service: 'workflow-execution',
+      executionId: params.execution.id,
+      workflowId: params.execution.workflowId,
+      organizationId: params.execution.organizationId,
+      limitCode: params.limitCode,
+      error: params.error,
+    });
   }
 
   private async executeStepWithPersistence(params: {

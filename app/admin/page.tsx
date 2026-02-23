@@ -17,6 +17,23 @@ export default function AdminDashboardPage() {
   const [aiUsage, setAiUsage] = useState<any>(null);
   const [automations, setAutomations] = useState<any>(null);
   const [recentUsers, setRecentUsers] = useState<any[]>([]);
+  const [plans, setPlans] = useState<any[]>([]);
+  const [organizationPlans, setOrganizationPlans] = useState<any[]>([]);
+  const [organizationUsage, setOrganizationUsage] = useState<any[]>([]);
+  const [safetyViolations, setSafetyViolations] = useState<any[]>([]);
+  const [planForm, setPlanForm] = useState({
+    name: "",
+    maxExecutionTimeMs: 300000,
+    maxStepIterations: 1000,
+    maxWorkflowSteps: 100,
+    maxDailyWorkflowRuns: 500,
+    maxDailyMessages: 1000,
+    maxDailyAiRequests: 500,
+    maxConcurrentRuns: 10,
+  });
+  const [planActionError, setPlanActionError] = useState<string | null>(null);
+  const [orgPlanDrafts, setOrgPlanDrafts] = useState<Record<string, string>>({});
+  const [orgOverrideDrafts, setOrgOverrideDrafts] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const isAdmin = user?.role === "OWNER" || user?.role === "SUPER_ADMIN";
@@ -36,6 +53,29 @@ export default function AdminDashboardPage() {
     loadAdminData();
   }, [isAdmin, user]);
 
+  const loadGovernanceData = async () => {
+    const governanceResults = await Promise.allSettled([
+      apiClient.getGovernancePlans(),
+      apiClient.getOrganizationPlans(),
+      apiClient.getOrganizationUsage({ limit: 10 }),
+      apiClient.getSafetyViolations({ limit: 10 }),
+    ]);
+
+    const [plansRes, orgPlansRes, usageRes, violationsRes] = governanceResults;
+    if (plansRes.status === "fulfilled") {
+      setPlans(Array.isArray(plansRes.value) ? plansRes.value : []);
+    }
+    if (orgPlansRes.status === "fulfilled") {
+      setOrganizationPlans(Array.isArray(orgPlansRes.value) ? orgPlansRes.value : []);
+    }
+    if (usageRes.status === "fulfilled") {
+      setOrganizationUsage(Array.isArray(usageRes.value) ? usageRes.value : []);
+    }
+    if (violationsRes.status === "fulfilled") {
+      setSafetyViolations(Array.isArray(violationsRes.value) ? violationsRes.value : []);
+    }
+  };
+
   const loadAdminData = async () => {
     try {
       const [analyticsRes, aiUsageRes, automationsRes, usersRes] = await Promise.all([
@@ -49,6 +89,7 @@ export default function AdminDashboardPage() {
       setAiUsage(aiUsageRes);
       setAutomations(automationsRes);
       setRecentUsers(usersRes?.users || []);
+      await loadGovernanceData();
     } catch (err: any) {
       setError(err.response?.data?.message || "Failed to load admin data");
     } finally {
@@ -309,6 +350,315 @@ export default function AdminDashboardPage() {
                         <p className="text-xs uppercase tracking-wide text-muted-foreground">{u.role}</p>
                         <p className="text-xs text-muted-foreground">{new Date(u.createdAt).toLocaleString()}</p>
                       </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/50 mt-8">
+            <CardHeader>
+              <CardTitle>Plan Management</CardTitle>
+              <CardDescription>Dynamic safety and quota limits by plan</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="border border-border/40 rounded-md p-3 mb-4">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground mb-3">Create Plan</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                  <input
+                    className="px-3 py-2 border border-border rounded-md bg-background text-sm"
+                    placeholder="Plan name"
+                    value={planForm.name}
+                    onChange={(e) => setPlanForm((prev) => ({ ...prev, name: e.target.value }))}
+                  />
+                  <input
+                    className="px-3 py-2 border border-border rounded-md bg-background text-sm"
+                    type="number"
+                    placeholder="Max runtime ms"
+                    value={planForm.maxExecutionTimeMs}
+                    onChange={(e) => setPlanForm((prev) => ({ ...prev, maxExecutionTimeMs: Number(e.target.value || 0) }))}
+                  />
+                  <input
+                    className="px-3 py-2 border border-border rounded-md bg-background text-sm"
+                    type="number"
+                    placeholder="Max iterations"
+                    value={planForm.maxStepIterations}
+                    onChange={(e) => setPlanForm((prev) => ({ ...prev, maxStepIterations: Number(e.target.value || 0) }))}
+                  />
+                  <input
+                    className="px-3 py-2 border border-border rounded-md bg-background text-sm"
+                    type="number"
+                    placeholder="Max workflow steps"
+                    value={planForm.maxWorkflowSteps}
+                    onChange={(e) => setPlanForm((prev) => ({ ...prev, maxWorkflowSteps: Number(e.target.value || 0) }))}
+                  />
+                  <input
+                    className="px-3 py-2 border border-border rounded-md bg-background text-sm"
+                    type="number"
+                    placeholder="Daily runs"
+                    value={planForm.maxDailyWorkflowRuns}
+                    onChange={(e) => setPlanForm((prev) => ({ ...prev, maxDailyWorkflowRuns: Number(e.target.value || 0) }))}
+                  />
+                  <input
+                    className="px-3 py-2 border border-border rounded-md bg-background text-sm"
+                    type="number"
+                    placeholder="Daily messages"
+                    value={planForm.maxDailyMessages}
+                    onChange={(e) => setPlanForm((prev) => ({ ...prev, maxDailyMessages: Number(e.target.value || 0) }))}
+                  />
+                  <input
+                    className="px-3 py-2 border border-border rounded-md bg-background text-sm"
+                    type="number"
+                    placeholder="Daily AI requests"
+                    value={planForm.maxDailyAiRequests}
+                    onChange={(e) => setPlanForm((prev) => ({ ...prev, maxDailyAiRequests: Number(e.target.value || 0) }))}
+                  />
+                  <div className="flex gap-2">
+                    <input
+                      className="w-full px-3 py-2 border border-border rounded-md bg-background text-sm"
+                      type="number"
+                      placeholder="Concurrent runs"
+                      value={planForm.maxConcurrentRuns}
+                      onChange={(e) => setPlanForm((prev) => ({ ...prev, maxConcurrentRuns: Number(e.target.value || 0) }))}
+                    />
+                    <Button
+                      size="sm"
+                      onClick={async () => {
+                        try {
+                          setPlanActionError(null);
+                          await apiClient.createGovernancePlan(planForm);
+                          setPlanForm({
+                            name: "",
+                            maxExecutionTimeMs: 300000,
+                            maxStepIterations: 1000,
+                            maxWorkflowSteps: 100,
+                            maxDailyWorkflowRuns: 500,
+                            maxDailyMessages: 1000,
+                            maxDailyAiRequests: 500,
+                            maxConcurrentRuns: 10,
+                          });
+                          await loadGovernanceData();
+                        } catch (err: any) {
+                          setPlanActionError(err?.response?.data?.message || "Failed to create plan");
+                        }
+                      }}
+                    >
+                      Create
+                    </Button>
+                  </div>
+                </div>
+                {planActionError && (
+                  <p className="text-xs text-destructive mt-2">{planActionError}</p>
+                )}
+              </div>
+
+              {plans.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No plans configured.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border/40 text-muted-foreground">
+                        <th className="text-left py-2 pr-4">Plan</th>
+                        <th className="text-left py-2 pr-4">Max Runtime</th>
+                        <th className="text-left py-2 pr-4">Max Steps</th>
+                        <th className="text-left py-2 pr-4">Max Iterations</th>
+                        <th className="text-left py-2 pr-4">Daily Runs</th>
+                        <th className="text-left py-2 pr-4">Daily Messages</th>
+                        <th className="text-left py-2 pr-4">Daily AI</th>
+                        <th className="text-left py-2 pr-4">Concurrent</th>
+                        <th className="text-left py-2">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {plans.map((plan) => (
+                        <tr key={plan.id} className="border-b border-border/20">
+                          <td className="py-2 pr-4 font-medium capitalize">{plan.name}</td>
+                          <td className="py-2 pr-4">{Math.round((plan.maxExecutionTimeMs || 0) / 1000)}s</td>
+                          <td className="py-2 pr-4">{plan.maxWorkflowSteps}</td>
+                          <td className="py-2 pr-4">{plan.maxStepIterations}</td>
+                          <td className="py-2 pr-4">{plan.maxDailyWorkflowRuns}</td>
+                          <td className="py-2 pr-4">{plan.maxDailyMessages}</td>
+                          <td className="py-2 pr-4">{plan.maxDailyAiRequests}</td>
+                          <td className="py-2 pr-4">{plan.maxConcurrentRuns}</td>
+                          <td className="py-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={async () => {
+                                const editable = {
+                                  maxExecutionTimeMs: plan.maxExecutionTimeMs,
+                                  maxStepIterations: plan.maxStepIterations,
+                                  maxWorkflowSteps: plan.maxWorkflowSteps,
+                                  maxDailyWorkflowRuns: plan.maxDailyWorkflowRuns,
+                                  maxDailyMessages: plan.maxDailyMessages,
+                                  maxDailyAiRequests: plan.maxDailyAiRequests,
+                                  maxConcurrentRuns: plan.maxConcurrentRuns,
+                                };
+                                const raw = window.prompt(
+                                  `Update limits for ${plan.name} as JSON`,
+                                  JSON.stringify(editable, null, 2),
+                                );
+                                if (!raw) return;
+                                try {
+                                  setPlanActionError(null);
+                                  const parsed = JSON.parse(raw);
+                                  await apiClient.updateGovernancePlan(plan.id, parsed);
+                                  await loadGovernanceData();
+                                } catch (err: any) {
+                                  setPlanActionError(err?.response?.data?.message || "Failed to update plan");
+                                }
+                              }}
+                            >
+                              Edit
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/50 mt-8">
+            <CardHeader>
+              <CardTitle>Organization Usage</CardTitle>
+              <CardDescription>Daily consumption and active concurrency by organization</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {organizationUsage.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No usage counters yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {organizationUsage.map((usage) => {
+                    const assigned = organizationPlans.find((row) => row.organizationId === usage.organizationId);
+                    const selectedPlanId = orgPlanDrafts[usage.organizationId] || assigned?.planId || "";
+                    const overrideDraft = orgOverrideDrafts[usage.organizationId] || "";
+
+                    return (
+                    <div key={`${usage.organizationId}-${usage.date}`} className="border border-border/40 rounded-md p-3">
+                      <div>
+                        <p className="text-sm font-medium">
+                          {usage.organization?.name || usage.organizationId}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {new Date(usage.date).toLocaleDateString()} | Runs {usage.workflowRunsCount} | Messages {usage.messagesSentCount} | AI {usage.aiRequestsCount} | Concurrent {usage.concurrentRunsCurrent}
+                        </p>
+                      </div>
+                      <div className="mt-3 grid grid-cols-1 lg:grid-cols-3 gap-2">
+                        <select
+                          className="px-3 py-2 border border-border rounded-md bg-background text-sm"
+                          value={selectedPlanId}
+                          onChange={(e) => setOrgPlanDrafts((prev) => ({ ...prev, [usage.organizationId]: e.target.value }))}
+                        >
+                          <option value="">Select plan</option>
+                          {plans.map((plan) => (
+                            <option key={plan.id} value={plan.id}>
+                              {plan.name}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          className="px-3 py-2 border border-border rounded-md bg-background text-sm"
+                          placeholder='Override JSON (optional), e.g. {"maxConcurrentRuns":5}'
+                          value={overrideDraft}
+                          onChange={(e) => setOrgOverrideDrafts((prev) => ({ ...prev, [usage.organizationId]: e.target.value }))}
+                        />
+                        <div className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={async () => {
+                              try {
+                                setPlanActionError(null);
+                                if (!selectedPlanId) {
+                                  setPlanActionError("Select a plan before assigning.");
+                                  return;
+                                }
+                                let parsedOverride: Record<string, unknown> | undefined = undefined;
+                                if (overrideDraft.trim()) {
+                                  parsedOverride = JSON.parse(overrideDraft);
+                                }
+                                await apiClient.assignOrganizationPlan(usage.organizationId, {
+                                  planId: selectedPlanId,
+                                  ...(parsedOverride ? { overrideConfig: parsedOverride } : {}),
+                                });
+                                await loadGovernanceData();
+                              } catch (err: any) {
+                                setPlanActionError(err?.response?.data?.message || "Failed to assign organization plan");
+                              }
+                            }}
+                          >
+                            Assign Plan
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={async () => {
+                              await apiClient.resetOrganizationUsage(usage.organizationId, {
+                                date: usage.date,
+                                resetConcurrent: false,
+                              });
+                              await loadGovernanceData();
+                            }}
+                          >
+                            Reset Counters
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {planActionError && (
+                <p className="text-xs text-destructive mt-3">{planActionError}</p>
+              )}
+
+              {organizationPlans.length > 0 && (
+                <div className="mt-6 border-t border-border/30 pt-4">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground mb-3">Assigned Plans</p>
+                  <div className="space-y-2">
+                    {organizationPlans.map((row) => (
+                      <div key={row.id} className="flex items-center justify-between text-sm">
+                        <span>{row.organization?.name || row.organizationId}</span>
+                        <span className="px-2 py-1 rounded bg-muted text-muted-foreground capitalize">{row.plan?.name || "unassigned"}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/50 mt-8">
+            <CardHeader>
+              <CardTitle>Safety Violations</CardTitle>
+              <CardDescription>Latest workflow safety limit breaches and system actions</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {safetyViolations.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No safety violations recorded.</p>
+              ) : (
+                <div className="space-y-2">
+                  {safetyViolations.map((violation) => (
+                    <div key={violation.id} className="border border-border/40 rounded-md p-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium">{violation.organization?.name || violation.organizationId}</p>
+                        <span className="px-2 py-1 rounded text-xs bg-amber-500/15 text-amber-700 dark:text-amber-300">
+                          {violation.limitCode}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Workflow {violation.workflow?.name || violation.workflowId || "n/a"} | Execution {violation.workflowExecutionId || "n/a"}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Action: {violation.actionTaken} | {new Date(violation.createdAt).toLocaleString()}
+                      </p>
                     </div>
                   ))}
                 </div>

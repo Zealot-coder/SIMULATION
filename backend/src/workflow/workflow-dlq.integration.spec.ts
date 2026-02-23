@@ -2,6 +2,22 @@ import { Prisma, WorkflowStatus, WorkflowStepStatus } from '@prisma/client';
 import { WorkflowExecutionService } from './workflow-execution.service';
 import { WorkflowJobPayload } from './workflow-job-payload';
 
+jest.mock('@sentry/node', () => ({
+  captureException: jest.fn(),
+}), { virtual: true });
+jest.mock('nest-winston', () => ({
+  WINSTON_MODULE_PROVIDER: 'WINSTON_MODULE_PROVIDER',
+}), { virtual: true });
+jest.mock('winston', () => ({}), { virtual: true });
+jest.mock('@willsoto/nestjs-prometheus', () => ({
+  InjectMetric: () => () => undefined,
+}), { virtual: true });
+jest.mock('prom-client', () => ({
+  Counter: class {},
+  Gauge: class {},
+  Histogram: class {},
+}), { virtual: true });
+
 interface InMemoryStep {
   id: string;
   executionId: string;
@@ -76,11 +92,15 @@ describe('workflow-dlq integration', () => {
       eventId: null,
       status: WorkflowStatus.PENDING,
       currentStep: 0,
+      iterationCount: 0,
+      concurrencySlotHeld: false,
+      safetyLimitCode: null as string | null,
       input: { customerId: 'cust-1' },
       output: null as unknown,
       error: null as string | null,
       startedAt: null as Date | null,
       completedAt: null as Date | null,
+      createdAt: new Date(),
       workflow: {
         id: 'wf-1',
         steps: [
@@ -117,6 +137,19 @@ describe('workflow-dlq integration', () => {
             return 0;
           }
           return executionState.status === where.status ? 1 : 0;
+        }),
+        updateMany: jest.fn(async ({ where, data }: any) => {
+          if (where.id !== executionState.id) {
+            return { count: 0 };
+          }
+          if (
+            where.concurrencySlotHeld !== undefined &&
+            executionState.concurrencySlotHeld !== where.concurrencySlotHeld
+          ) {
+            return { count: 0 };
+          }
+          applyUpdate(executionState as Record<string, unknown>, data as Record<string, unknown>);
+          return { count: 1 };
         }),
       },
       workflowStep: {
@@ -316,6 +349,27 @@ describe('workflow-dlq integration', () => {
       markDone: jest.fn(async () => undefined),
       releaseLock: jest.fn(async () => undefined),
     };
+    const governanceService = {
+      resolveEffectiveLimits: jest.fn(async () => ({
+        planId: 'plan-free',
+        planName: 'free',
+        maxExecutionTimeMs: 5 * 60 * 1000,
+        maxStepIterations: 1000,
+        maxWorkflowSteps: 100,
+        maxDailyWorkflowRuns: 500,
+        maxDailyMessages: 1000,
+        maxDailyAiRequests: 500,
+        maxConcurrentRuns: 10,
+      })),
+      tryAcquireConcurrentRunSlot: jest.fn(async () => ({
+        acquired: true,
+        limit: 10,
+        current: 1,
+        retryDelayMs: 5000,
+      })),
+      releaseConcurrentRunSlot: jest.fn(async () => undefined),
+      recordSafetyViolation: jest.fn(async () => undefined),
+    };
 
     const service = new WorkflowExecutionService(
       prisma as any,
@@ -326,6 +380,7 @@ describe('workflow-dlq integration', () => {
       metrics as any,
       correlationContext as any,
       auditService as any,
+      governanceService as any,
       queue as any,
     );
 

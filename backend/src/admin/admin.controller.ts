@@ -1,7 +1,10 @@
 import {
+  Body,
   Controller,
   Get,
+  Patch,
   Post,
+  Put,
   Param,
   Query,
   UseGuards,
@@ -9,6 +12,10 @@ import {
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from './guards/admin.guard';
+import { CreatePlanDto } from './dto/create-plan.dto';
+import { UpdatePlanDto } from './dto/update-plan.dto';
+import { AssignOrganizationPlanDto } from './dto/assign-organization-plan.dto';
+import { ResetOrganizationUsageDto } from './dto/reset-organization-usage.dto';
 
 @Controller('admin')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -119,6 +126,91 @@ export class AdminController {
     }
 
     return data;
+  }
+
+  @Get('plans')
+  async getPlans() {
+    return this.adminService.getPlans();
+  }
+
+  @Post('plans')
+  async createPlan(@Body() dto: CreatePlanDto) {
+    return this.adminService.createPlan(dto);
+  }
+
+  @Patch('plans/:id')
+  async updatePlan(
+    @Param('id') id: string,
+    @Body() dto: UpdatePlanDto,
+  ) {
+    return this.adminService.updatePlan(id, dto);
+  }
+
+  @Get('organization-plans')
+  async getOrganizationPlans(@Query('organizationId') organizationId?: string) {
+    return this.adminService.getOrganizationPlans(organizationId);
+  }
+
+  @Put('organization-plans/:organizationId')
+  async assignOrganizationPlan(
+    @Param('organizationId') organizationId: string,
+    @Body() dto: AssignOrganizationPlanDto,
+  ) {
+    return this.adminService.assignOrganizationPlan({
+      organizationId,
+      planId: dto.planId,
+      overrideConfig: dto.overrideConfig,
+    });
+  }
+
+  @Get('organization-usage')
+  async getOrganizationUsage(
+    @Query('organizationId') organizationId?: string,
+    @Query('date') date?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.adminService.getOrganizationUsage({
+      organizationId,
+      date,
+      from,
+      to,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
+  }
+
+  @Post('organization-usage/:organizationId/reset')
+  async resetOrganizationUsage(
+    @Param('organizationId') organizationId: string,
+    @Body() dto: ResetOrganizationUsageDto,
+  ) {
+    return this.adminService.resetOrganizationUsage({
+      organizationId,
+      date: dto.date,
+      resetConcurrent: dto.resetConcurrent,
+    });
+  }
+
+  @Get('safety-violations')
+  async getSafetyViolations(
+    @Query('organizationId') organizationId?: string,
+    @Query('workflowId') workflowId?: string,
+    @Query('workflowExecutionId') workflowExecutionId?: string,
+    @Query('limitCode') limitCode?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.adminService.getSafetyViolations({
+      organizationId,
+      workflowId,
+      workflowExecutionId,
+      limitCode,
+      from,
+      to,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
   }
 }
 

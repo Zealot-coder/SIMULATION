@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AIRequestDto } from './dto/ai-request.dto';
 import { AIRequestType, AIRequestStatus } from '@prisma/client';
 import type { AIProvider } from './providers/ai-provider.interface';
+import { GovernanceService } from '../governance/governance.service';
 
 @Injectable()
 export class AiService {
@@ -14,11 +15,14 @@ export class AiService {
     private prisma: PrismaService,
     private configService: ConfigService,
     @Inject('AI_PROVIDER') private provider: AIProvider,
+    private governanceService: GovernanceService,
   ) {
     this.aiProvider = provider;
   }
 
   async processRequest(dto: AIRequestDto & { organizationId: string }) {
+    await this.governanceService.consumeDailyAiQuota(dto.organizationId);
+
     // Create AI request record
     const aiRequest = await this.prisma.aIRequest.create({
       data: {

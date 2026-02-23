@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { UserRole, WorkflowStatus } from '@prisma/client';
 import { AppLoggerService } from '../common/logger/app-logger.service';
 import { HealthService } from '../health/health.service';
+import { GovernanceService } from '../governance/governance.service';
 
 @Injectable()
 export class AdminService {
@@ -12,6 +13,7 @@ export class AdminService {
     private readonly prisma: PrismaService,
     private readonly logger: AppLoggerService,
     private readonly healthService: HealthService,
+    private readonly governanceService: GovernanceService,
     @InjectQueue('workflows') private readonly workflowQueue: Queue,
     @InjectQueue('events') private readonly eventQueue: Queue,
   ) {}
@@ -112,7 +114,11 @@ export class AdminService {
 
   async getRecentErrors(limit = 50) {
     return this.prisma.workflowExecution.findMany({
-      where: { status: WorkflowStatus.FAILED },
+      where: {
+        status: {
+          in: [WorkflowStatus.FAILED, WorkflowStatus.FAILED_SAFETY_LIMIT],
+        },
+      },
       orderBy: { createdAt: 'desc' },
       take: Math.max(1, Math.min(limit, 200)),
       include: {
@@ -468,6 +474,81 @@ export class AdminService {
     }
 
     return data;
+  }
+
+  async getPlans() {
+    return this.governanceService.listPlans();
+  }
+
+  async createPlan(data: {
+    name: string;
+    maxExecutionTimeMs: number;
+    maxStepIterations: number;
+    maxWorkflowSteps: number;
+    maxDailyWorkflowRuns: number;
+    maxDailyMessages: number;
+    maxDailyAiRequests: number;
+    maxConcurrentRuns: number;
+  }) {
+    return this.governanceService.createPlan(data);
+  }
+
+  async updatePlan(
+    planId: string,
+    data: Partial<{
+      name: string;
+      maxExecutionTimeMs: number;
+      maxStepIterations: number;
+      maxWorkflowSteps: number;
+      maxDailyWorkflowRuns: number;
+      maxDailyMessages: number;
+      maxDailyAiRequests: number;
+      maxConcurrentRuns: number;
+    }>,
+  ) {
+    return this.governanceService.updatePlan(planId, data);
+  }
+
+  async getOrganizationPlans(organizationId?: string) {
+    return this.governanceService.listOrganizationPlans(organizationId);
+  }
+
+  async assignOrganizationPlan(params: {
+    organizationId: string;
+    planId: string;
+    overrideConfig?: Record<string, unknown>;
+  }) {
+    return this.governanceService.assignOrganizationPlan(params);
+  }
+
+  async getOrganizationUsage(params?: {
+    organizationId?: string;
+    date?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+  }) {
+    return this.governanceService.getOrganizationUsage(params);
+  }
+
+  async resetOrganizationUsage(params: {
+    organizationId: string;
+    date?: string;
+    resetConcurrent?: boolean;
+  }) {
+    return this.governanceService.resetOrganizationUsage(params);
+  }
+
+  async getSafetyViolations(params?: {
+    organizationId?: string;
+    workflowId?: string;
+    workflowExecutionId?: string;
+    limitCode?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+  }) {
+    return this.governanceService.listSafetyViolations(params);
   }
 
   private groupBy<T>(array: T[], key: keyof T): Record<string, T[]> {

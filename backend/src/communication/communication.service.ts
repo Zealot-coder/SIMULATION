@@ -6,6 +6,7 @@ import {
   CommunicationChannel,
   CommunicationStatus,
 } from '@prisma/client';
+import { GovernanceService } from '../governance/governance.service';
 
 @Injectable()
 export class CommunicationService {
@@ -14,6 +15,7 @@ export class CommunicationService {
   constructor(
     private prisma: PrismaService,
     private configService: ConfigService,
+    private governanceService: GovernanceService,
   ) {}
 
   async sendMessage(dto: SendMessageDto & { organizationId: string }) {
@@ -33,6 +35,7 @@ export class CommunicationService {
     }
 
     if (!communication) {
+      await this.governanceService.consumeDailyMessageQuota(dto.organizationId);
       communication = await this.prisma.communication.create({
         data: {
           organizationId: dto.organizationId,

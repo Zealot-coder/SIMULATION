@@ -278,6 +278,105 @@ class ApiClient {
     return this.request('/admin/automations');
   }
 
+  async getGovernancePlans() {
+    return this.request('/admin/plans');
+  }
+
+  async createGovernancePlan(payload: {
+    name: string;
+    maxExecutionTimeMs: number;
+    maxStepIterations: number;
+    maxWorkflowSteps: number;
+    maxDailyWorkflowRuns: number;
+    maxDailyMessages: number;
+    maxDailyAiRequests: number;
+    maxConcurrentRuns: number;
+  }) {
+    return this.post('/admin/plans', payload);
+  }
+
+  async updateGovernancePlan(
+    planId: string,
+    payload: Partial<{
+      name: string;
+      maxExecutionTimeMs: number;
+      maxStepIterations: number;
+      maxWorkflowSteps: number;
+      maxDailyWorkflowRuns: number;
+      maxDailyMessages: number;
+      maxDailyAiRequests: number;
+      maxConcurrentRuns: number;
+    }>,
+  ) {
+    return this.patch(`/admin/plans/${planId}`, payload);
+  }
+
+  async getOrganizationPlans(organizationId?: string) {
+    const query = organizationId ? `?organizationId=${encodeURIComponent(organizationId)}` : '';
+    return this.request(`/admin/organization-plans${query}`);
+  }
+
+  async assignOrganizationPlan(
+    organizationId: string,
+    payload: {
+      planId: string;
+      overrideConfig?: Record<string, unknown>;
+    },
+  ) {
+    return this.request(`/admin/organization-plans/${organizationId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async getOrganizationUsage(params?: {
+    organizationId?: string;
+    date?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+  }) {
+    const qp = new URLSearchParams();
+    if (params?.organizationId) qp.set('organizationId', params.organizationId);
+    if (params?.date) qp.set('date', params.date);
+    if (params?.from) qp.set('from', params.from);
+    if (params?.to) qp.set('to', params.to);
+    if (params?.limit) qp.set('limit', String(params.limit));
+    const query = qp.toString();
+    return this.request(`/admin/organization-usage${query ? `?${query}` : ''}`);
+  }
+
+  async resetOrganizationUsage(
+    organizationId: string,
+    payload?: {
+      date?: string;
+      resetConcurrent?: boolean;
+    },
+  ) {
+    return this.post(`/admin/organization-usage/${organizationId}/reset`, payload || {});
+  }
+
+  async getSafetyViolations(params?: {
+    organizationId?: string;
+    workflowId?: string;
+    workflowExecutionId?: string;
+    limitCode?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+  }) {
+    const qp = new URLSearchParams();
+    if (params?.organizationId) qp.set('organizationId', params.organizationId);
+    if (params?.workflowId) qp.set('workflowId', params.workflowId);
+    if (params?.workflowExecutionId) qp.set('workflowExecutionId', params.workflowExecutionId);
+    if (params?.limitCode) qp.set('limitCode', params.limitCode);
+    if (params?.from) qp.set('from', params.from);
+    if (params?.to) qp.set('to', params.to);
+    if (params?.limit) qp.set('limit', String(params.limit));
+    const query = qp.toString();
+    return this.request(`/admin/safety-violations${query ? `?${query}` : ''}`);
+  }
+
   async getAdminLogs(filters?: {
     entityType?: string;
     action?: string;

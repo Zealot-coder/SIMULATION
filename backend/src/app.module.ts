@@ -25,6 +25,7 @@ import { AdminModule } from './admin/admin.module';
 import { AutomationModule } from './automation/automation.module';
 import { HealthModule } from './health/health.module';
 import { WebhookModule } from './webhook/webhook.module';
+import { GovernanceModule } from './governance/governance.module';
 
 @Module({
   imports: [
@@ -114,6 +115,7 @@ import { WebhookModule } from './webhook/webhook.module';
     AutomationModule,
     HealthModule,
     WebhookModule,
+    GovernanceModule,
   ],
   controllers: [AppController],
   providers: [

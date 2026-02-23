@@ -190,6 +190,9 @@ model Organization {
   idempotencyKeys      IdempotencyKey[]
   webhookDedupItems    WebhookDedup[]
   stepDedupItems       StepDedup[]
+  planAssignment       OrganizationPlan?
+  usageRows            OrganizationUsage[]
+  safetyViolations     WorkflowSafetyViolation[]
   
   // Subscription (future)
   subscriptionTier String? @default("free")
@@ -240,6 +243,7 @@ enum WorkflowStatus {
   RUNNING
   SUCCESS
   FAILED
+  FAILED_SAFETY_LIMIT
   PARTIAL
   DLQ_PENDING
   PAUSED
@@ -312,6 +316,7 @@ model Workflow {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   executions     WorkflowExecution[]
   automationJobs AutomationJob[]
+  safetyViolations WorkflowSafetyViolation[]
   
   // Audit
   createdAt      DateTime @default(now())
@@ -328,6 +333,9 @@ model WorkflowExecution {
   eventId        String?         // Event that triggered this execution
   status         WorkflowStatus  @default(PENDING)
   currentStep    Int             @default(0)
+  iterationCount Int             @default(0)
+  concurrencySlotHeld Boolean    @default(false)
+  safetyLimitCode String?
   
   // Execution data
   input          Json            // Input data for the workflow
@@ -346,6 +354,7 @@ model WorkflowExecution {
   steps          WorkflowStep[]
   dlqItems       WorkflowStepDlqItem[]
   stepDedupEntries StepDedup[]
+  safetyViolations WorkflowSafetyViolation[]
   
   // Audit
   startedAt      DateTime?       @default(now())
@@ -625,6 +634,79 @@ model StepDedup {
   @@index([expiresAt])
   @@index([status, lockedAt])
   @@index([workflowRunId])
+}
+
+model Plan {
+  id                   String   @id @default(cuid())
+  name                 String   @unique
+  maxExecutionTimeMs   Int      @default(300000) @map("max_execution_time_ms")
+  maxStepIterations    Int      @default(1000) @map("max_step_iterations")
+  maxWorkflowSteps     Int      @default(100) @map("max_workflow_steps")
+  maxDailyWorkflowRuns Int      @default(500) @map("max_daily_workflow_runs")
+  maxDailyMessages     Int      @default(1000) @map("max_daily_messages")
+  maxDailyAiRequests   Int      @default(500) @map("max_daily_ai_requests")
+  maxConcurrentRuns    Int      @default(10) @map("max_concurrent_runs")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  organizationPlans    OrganizationPlan[]
+
+  @@map("plans")
+}
+
+model OrganizationPlan {
+  id             String   @id @default(cuid())
+  organizationId String   @unique @map("organization_id")
+  planId         String   @map("plan_id")
+  overrideConfig Json?    @map("override_config")
+  activatedAt    DateTime @default(now()) @map("activated_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  plan           Plan         @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@index([planId])
+  @@map("organization_plans")
+}
+
+model OrganizationUsage {
+  id                    String   @id @default(cuid())
+  organizationId        String   @map("organization_id")
+  date                  DateTime @db.Date
+  workflowRunsCount     Int      @default(0) @map("workflow_runs_count")
+  messagesSentCount     Int      @default(0) @map("messages_sent_count")
+  aiRequestsCount       Int      @default(0) @map("ai_requests_count")
+  concurrentRunsCurrent Int      @default(0) @map("concurrent_runs_current")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+  createdAt             DateTime @default(now()) @map("created_at")
+
+  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, date])
+  @@index([date])
+  @@index([organizationId, updatedAt])
+  @@map("organization_usage")
+}
+
+model WorkflowSafetyViolation {
+  id                  String    @id @default(cuid())
+  organizationId      String    @map("organization_id")
+  workflowId          String?   @map("workflow_id")
+  workflowExecutionId String?   @map("workflow_execution_id")
+  limitCode           String    @map("limit_code")
+  details             Json?
+  actionTaken         String    @map("action_taken")
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  organization        Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  workflow            Workflow?          @relation(fields: [workflowId], references: [id], onDelete: SetNull)
+  workflowExecution   WorkflowExecution? @relation(fields: [workflowExecutionId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([limitCode, createdAt])
+  @@index([workflowExecutionId])
+  @@map("workflow_safety_violations")
 }
 
 // ============================================
