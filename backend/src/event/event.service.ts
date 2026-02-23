@@ -1,4 +1,4 @@
-import { Injectable, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Inject, forwardRef, NotFoundException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import * as Sentry from '@sentry/node';
@@ -151,9 +151,12 @@ export class EventService {
     });
   }
 
-  async findOne(id: string) {
-    return this.prisma.event.findUnique({
-      where: { id },
+  async findOne(id: string, organizationId: string) {
+    const event = await this.prisma.event.findFirst({
+      where: {
+        id,
+        organizationId,
+      },
       include: {
         triggeredWorkflows: {
           include: {
@@ -162,5 +165,11 @@ export class EventService {
         },
       },
     });
+
+    if (!event) {
+      throw new NotFoundException('Event not found');
+    }
+
+    return event;
   }
 }

@@ -34,8 +34,12 @@ export class WorkflowController {
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string) {
-    return this.workflowService.findOne(id);
+  @UseGuards(OrganizationGuard)
+  async findOne(
+    @Param('id') id: string,
+    @CurrentOrganization() organization: any,
+  ) {
+    return this.workflowService.findOne(id, organization.id);
   }
 
   @Put(':id')

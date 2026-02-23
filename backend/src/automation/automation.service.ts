@@ -44,11 +44,12 @@ export class AutomationService {
     return job;
   }
 
-  async getJobStatus(jobId: string, userId: string) {
+  async getJobStatus(jobId: string, userId: string, organizationId: string) {
     const job = await this.prisma.automationJob.findFirst({
       where: {
         id: jobId,
         userId, // Ensure user can only see their own jobs
+        organizationId,
       },
       include: {
         executionLogs: {
@@ -70,8 +71,8 @@ export class AutomationService {
     return job;
   }
 
-  async getJobResult(jobId: string, userId: string) {
-    const job = await this.getJobStatus(jobId, userId);
+  async getJobResult(jobId: string, userId: string, organizationId: string) {
+    const job = await this.getJobStatus(jobId, userId, organizationId);
     
     if (job.status !== AutomationJobStatus.COMPLETED) {
       throw new Error('Job not completed yet');

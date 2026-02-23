@@ -7,6 +7,7 @@ import { useSession } from "next-auth/react";
 import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { useOrgContext } from "@/contexts/org-context";
 import {
   LayoutDashboard,
   Activity,
@@ -21,7 +22,6 @@ import {
   X,
   LogOut,
   Building2,
-  ChevronDown,
 } from "lucide-react";
 
 const navigation = [
@@ -39,6 +39,8 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const pathname = usePathname();
   const { data: session } = useSession();
+  const { activeOrganization, memberships, switchOrganization, loading: orgContextLoading } =
+    useOrgContext();
   const user = session?.user as any;
   const canManageDlq =
     user?.role === "OWNER" ||
@@ -85,15 +87,34 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
           {/* Org Switcher */}
           <div className="px-4 py-3 border-b border-border">
-            <button className="flex items-center justify-between w-full p-2 rounded-lg hover:bg-muted transition-colors">
+            <div className="flex items-center justify-between w-full p-2 rounded-lg hover:bg-muted transition-colors">
               <div className="flex items-center gap-2">
                 <Building2 className="w-4 h-4 text-muted-foreground" />
-                <span className="text-sm font-medium truncate">
-                  {user?.organizationId || "Default Organization"}
-                </span>
+                {memberships.length <= 1 ? (
+                  <span className="text-sm font-medium truncate">
+                    {activeOrganization?.organization_name || "No Organization"}
+                  </span>
+                ) : (
+                  <select
+                    aria-label="Active organization"
+                    className="bg-transparent text-sm font-medium truncate focus:outline-none"
+                    value={activeOrganization?.organization_id || ""}
+                    onChange={(event) => void switchOrganization(event.target.value)}
+                    disabled={orgContextLoading}
+                  >
+                    {memberships.map((membership) => (
+                      <option
+                        key={membership.organization_id}
+                        value={membership.organization_id}
+                        className="text-foreground bg-card"
+                      >
+                        {membership.organization_name}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
-              <ChevronDown className="w-4 h-4 text-muted-foreground" />
-            </button>
+            </div>
           </div>
 
           {/* Navigation */}

@@ -7,6 +7,7 @@ export class AuthUserDto {
   name?: string;
   avatar?: string;
   role: string;
+  activeOrganizationId?: string;
   lastLogin?: Date;
 }
 

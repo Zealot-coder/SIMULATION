@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { OrgContextProvider } from "@/contexts/org-context";
 
 // Role hierarchy for permission checking
 const ROLE_HIERARCHY: Record<string, number> = {
@@ -37,5 +38,5 @@ export default async function ProtectedLayout({
     redirect("/auth/sign-in?error=invalid_role");
   }
 
-  return <>{children}</>;
+  return <OrgContextProvider>{children}</OrgContextProvider>;
 }

@@ -14,11 +14,12 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { CurrentOrganization } from '../auth/decorators/organization.decorator';
 
 @Controller('automation')
-@UseGuards(JwtAuthGuard, OrganizationGuard)
+@UseGuards(JwtAuthGuard)
 export class AutomationController {
   constructor(private readonly automationService: AutomationService) {}
 
   @Post('create')
+  @UseGuards(OrganizationGuard)
   async create(
     @CurrentUser() user: any,
     @CurrentOrganization() organization: any,
@@ -38,6 +39,7 @@ export class AutomationController {
   }
 
   @Post('run')
+  @UseGuards(OrganizationGuard)
   async run(
     @CurrentUser() user: any,
     @CurrentOrganization() organization: any,
@@ -56,22 +58,27 @@ export class AutomationController {
   }
 
   @Get(':id/status')
+  @UseGuards(OrganizationGuard)
   async getStatus(
     @Param('id') id: string,
     @CurrentUser() user: any,
+    @CurrentOrganization() organization: any,
   ) {
-    return this.automationService.getJobStatus(id, user.id);
+    return this.automationService.getJobStatus(id, user.id, organization.id);
   }
 
   @Get(':id/result')
+  @UseGuards(OrganizationGuard)
   async getResult(
     @Param('id') id: string,
     @CurrentUser() user: any,
+    @CurrentOrganization() organization: any,
   ) {
-    return this.automationService.getJobResult(id, user.id);
+    return this.automationService.getJobResult(id, user.id, organization.id);
   }
 
   @Get('history')
+  @UseGuards(OrganizationGuard)
   async getHistory(
     @CurrentUser() user: any,
     @CurrentOrganization() organization: any,

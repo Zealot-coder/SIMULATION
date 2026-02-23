@@ -13,10 +13,10 @@ export class OrganizationGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest();
     const user = request.user;
-    const organizationId = request.params.organizationId || request.body.organizationId;
+    const organizationId = this.resolveOrganizationId(request);
 
     if (!organizationId) {
-      return true; // No organization context required
+      throw new ForbiddenException('Organization context is required');
     }
 
     if (!user) {
@@ -43,6 +43,32 @@ export class OrganizationGuard implements CanActivate {
     request.membership = membership;
 
     return true;
+  }
+
+  private resolveOrganizationId(request: any): string | undefined {
+    const candidates: unknown[] = [
+      request?.params?.organizationId,
+      request?.body?.organizationId,
+      request?.query?.organizationId,
+      request?.headers?.['x-organization-id'],
+      request?.user?.activeOrganizationId,
+    ];
+
+    for (const candidate of candidates) {
+      if (Array.isArray(candidate)) {
+        const first = candidate.find((item) => typeof item === 'string' && item.length > 0);
+        if (typeof first === 'string') {
+          return first;
+        }
+        continue;
+      }
+
+      if (typeof candidate === 'string' && candidate.length > 0) {
+        return candidate;
+      }
+    }
+
+    return undefined;
   }
 }
 

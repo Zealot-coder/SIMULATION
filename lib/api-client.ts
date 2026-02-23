@@ -163,6 +163,19 @@ class ApiClient {
     });
   }
 
+  async getAuthContext(): Promise<any> {
+    return this.request<any>('/auth/context', {
+      method: 'GET',
+    });
+  }
+
+  async setActiveOrganization(organizationId: string): Promise<any> {
+    return this.request<any>('/auth/active-organization', {
+      method: 'POST',
+      body: JSON.stringify({ organizationId }),
+    });
+  }
+
   async get<T = any>(endpoint: string): Promise<T> {
     return this.request(endpoint, { method: 'GET' });
   }

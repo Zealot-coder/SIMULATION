@@ -3,6 +3,7 @@ import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { SetActiveOrganizationDto } from './dto/set-active-organization.dto';
 import { AuthGuard } from '@nestjs/passport';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
@@ -162,23 +163,34 @@ export class AuthController {
   @Get('me')
   @UseGuards(JwtAuthGuard)
   async getMe(@CurrentUser() user: any) {
+    const context = await this.authService.getAuthContext(user.id);
+
     return {
-      id: user.id,
-      email: user.email,
-      phone: user.phone,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      name: user.name,
-      avatar: user.avatar,
-      role: user.role,
-      lastLogin: user.lastLogin,
-      createdAt: user.createdAt,
-      // Memberships are optional and may not exist in legacy DBs yet.
-      organizations: user.organizationMemberships?.map?.((m: any) => ({
-        id: m.organization?.id,
-        name: m.organization?.name,
-        role: m.role,
-      })) || [],
+      ...context.user,
+      activeOrganizationId: context.active_organization_id,
+      onboardingRequired: context.onboarding_required,
+      organizations: context.memberships.map((membership: any) => ({
+        id: membership.organization_id,
+        name: membership.organization_name,
+        slug: membership.organization_slug,
+        role: membership.role,
+        normalizedRole: membership.normalized_role,
+      })),
     };
+  }
+
+  @Get('context')
+  @UseGuards(JwtAuthGuard)
+  async getContext(@CurrentUser() user: any) {
+    return this.authService.getAuthContext(user.id);
+  }
+
+  @Post('active-organization')
+  @UseGuards(JwtAuthGuard)
+  async setActiveOrganization(
+    @CurrentUser() user: any,
+    @Body() dto: SetActiveOrganizationDto,
+  ) {
+    return this.authService.setActiveOrganization(user.id, dto.organizationId);
   }
 }

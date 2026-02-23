@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/commo
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { AddMemberDto } from './dto/add-member.dto';
+import { normalizeOrganizationRole } from '../auth/rbac.util';
 
 @Injectable()
 export class OrganizationService {
@@ -47,10 +48,17 @@ export class OrganizationService {
       },
     });
 
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { activeOrganizationId: organization.id },
+    });
+
     return organization;
   }
 
-  async findOne(organizationId: string) {
+  async findOne(organizationId: string, userId: string) {
+    await this.verifyMembership(userId, organizationId);
+
     const organization = await this.prisma.organization.findUnique({
       where: { id: organizationId },
       include: {
@@ -77,7 +85,7 @@ export class OrganizationService {
     return organization;
   }
 
-  async findBySlug(slug: string) {
+  async findBySlug(slug: string, userId: string) {
     const organization = await this.prisma.organization.findUnique({
       where: { slug },
       include: {
@@ -101,10 +109,17 @@ export class OrganizationService {
       throw new NotFoundException('Organization not found');
     }
 
+    await this.verifyMembership(userId, organization.id);
+
     return organization;
   }
 
-  async addMember(organizationId: string, userId: string, dto: AddMemberDto) {
+  async addMember(organizationId: string, actingUserId: string, dto: AddMemberDto) {
+    const actorMembership = await this.verifyMembership(actingUserId, organizationId);
+    if (normalizeOrganizationRole(actorMembership.role) !== 'ADMIN') {
+      throw new ForbiddenException('Only organization admins can add members');
+    }
+
     // Verify user exists
     const user = await this.prisma.user.findUnique({
       where: { id: dto.userId },

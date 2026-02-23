@@ -10,10 +10,12 @@ import { GitHubStrategy } from './strategies/github.strategy';
 import { GoogleOAuthGuard } from './guards/google-oauth.guard';
 import { GitHubOAuthGuard } from './guards/github-oauth.guard';
 import { PrismaModule } from '../prisma/prisma.module';
+import { AuditModule } from '../audit/audit.module';
 
 @Module({
   imports: [
     PrismaModule,
+    AuditModule,
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],

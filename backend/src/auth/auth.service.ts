@@ -1,11 +1,14 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
+import { AuditAction } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditService } from '../audit/audit.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { AuthResponseDto } from './dto/auth-response.dto';
+import { buildRbacCapabilities, normalizeOrganizationRole } from './rbac.util';
 
 @Injectable()
 export class AuthService {
@@ -13,6 +16,7 @@ export class AuthService {
     private prisma: PrismaService,
     private jwtService: JwtService,
     private configService: ConfigService,
+    private auditService: AuditService,
   ) {}
 
   async register(dto: RegisterDto): Promise<AuthResponseDto> {
@@ -76,6 +80,7 @@ export class AuthService {
         name: user.name ?? undefined,
         avatar: user.avatar ?? undefined,
         role: user.role,
+        activeOrganizationId: user.activeOrganizationId ?? undefined,
       },
     };
   }
@@ -131,6 +136,7 @@ export class AuthService {
         name: user.name ?? undefined,
         avatar: user.avatar ?? undefined,
         role: user.role,
+        activeOrganizationId: user.activeOrganizationId ?? undefined,
       },
     };
   }
@@ -182,6 +188,130 @@ export class AuthService {
     }
 
     return user;
+  }
+
+  async getAuthContext(userId: string) {
+    const user = await this.validateUser(userId);
+    if (!user) {
+      throw new UnauthorizedException('User not found or inactive');
+    }
+
+    const memberships = (user.organizationMemberships || [])
+      .filter((membership: any) => membership?.isActive && membership?.organization?.id)
+      .map((membership: any) => ({
+        organization_id: membership.organizationId,
+        organization_name: membership.organization.name,
+        organization_slug: membership.organization.slug,
+        role: membership.role,
+        normalized_role: normalizeOrganizationRole(membership.role),
+      }));
+
+    let activeOrganizationId: string | null = user.activeOrganizationId ?? null;
+    if (
+      activeOrganizationId &&
+      !memberships.some((membership: any) => membership.organization_id === activeOrganizationId)
+    ) {
+      activeOrganizationId = null;
+    }
+
+    if (!activeOrganizationId && memberships.length > 0) {
+      activeOrganizationId = memberships[0].organization_id;
+    }
+
+    if (activeOrganizationId !== (user.activeOrganizationId ?? null)) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: { activeOrganizationId },
+      });
+    }
+
+    const activeMembership = memberships.find(
+      (membership: any) => membership.organization_id === activeOrganizationId,
+    );
+    const membershipCapabilities: Record<string, ReturnType<typeof buildRbacCapabilities>> = {};
+    for (const membership of memberships) {
+      membershipCapabilities[membership.organization_id] = buildRbacCapabilities(membership.role);
+    }
+
+    return {
+      user: {
+        id: user.id,
+        email: user.email ?? undefined,
+        phone: user.phone ?? undefined,
+        firstName: user.firstName ?? undefined,
+        lastName: user.lastName ?? undefined,
+        name: user.name ?? undefined,
+        avatar: user.avatar ?? undefined,
+        role: user.role,
+        lastLogin: user.lastLogin,
+      },
+      memberships,
+      active_organization_id: activeOrganizationId,
+      onboarding_required: memberships.length === 0,
+      rbac_capabilities: {
+        active_organization: activeMembership
+          ? buildRbacCapabilities(activeMembership.role)
+          : null,
+        memberships: membershipCapabilities,
+      },
+    };
+  }
+
+  async setActiveOrganization(userId: string, organizationId: string) {
+    const currentUser = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, activeOrganizationId: true },
+    });
+
+    if (!currentUser) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    const membership = await this.prisma.organizationMember.findUnique({
+      where: {
+        userId_organizationId: {
+          userId,
+          organizationId,
+        },
+      },
+      include: {
+        organization: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+          },
+        },
+      },
+    });
+
+    if (!membership || !membership.isActive) {
+      throw new ForbiddenException('User is not a member of this organization');
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { activeOrganizationId: organizationId },
+    });
+
+    await this.auditService.log(
+      AuditAction.UPDATE,
+      'User',
+      userId,
+      'Active organization changed',
+      {
+        userId,
+        organizationId,
+        metadata: {
+          fromOrganizationId: currentUser.activeOrganizationId,
+          toOrganizationId: organizationId,
+          organizationName: membership.organization?.name,
+          organizationSlug: membership.organization?.slug,
+        },
+      },
+    );
+
+    return this.getAuthContext(userId);
   }
 
   async generateRefreshToken(userId: string): Promise<string> {
@@ -244,6 +374,7 @@ export class AuthService {
         name: user.name ?? undefined,
         avatar: user.avatar ?? undefined,
         role: user.role,
+        activeOrganizationId: user.activeOrganizationId ?? undefined,
       }
     };
   }

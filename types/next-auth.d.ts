@@ -16,6 +16,8 @@ declare module "next-auth" {
       avatar?: string;
       role?: string;
       organizationId?: string;
+      activeOrganizationId?: string;
+      onboardingRequired?: boolean;
     };
   }
 }
@@ -35,6 +37,8 @@ declare module "next-auth/jwt" {
       avatar?: string;
       role?: string;
       organizationId?: string;
+      activeOrganizationId?: string;
+      onboardingRequired?: boolean;
     };
     accessTokenExpiredAt?: number;
   }

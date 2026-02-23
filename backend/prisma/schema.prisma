@@ -37,6 +37,8 @@ model User {
   
   // Organization membership
   organizationMemberships OrganizationMember[]
+  activeOrganizationId String?
+  activeOrganization   Organization? @relation("ActiveOrganization", fields: [activeOrganizationId], references: [id], onDelete: SetNull)
   
   // Refresh tokens
   refreshTokens RefreshToken[]
@@ -51,6 +53,7 @@ model User {
   @@index([email])
   @@index([phone])
   @@index([role])
+  @@index([activeOrganizationId])
 }
 
 model RefreshToken {
@@ -177,6 +180,7 @@ model Organization {
   
   // Relationships
   members     OrganizationMember[]
+  activeUsers User[] @relation("ActiveOrganization")
   workflows   Workflow[]
   events      Event[]
   auditLogs   AuditLog[]

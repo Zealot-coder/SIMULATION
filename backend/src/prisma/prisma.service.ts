@@ -20,7 +20,33 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       ALTER TABLE "User"
         ADD COLUMN IF NOT EXISTS "name" TEXT,
         ADD COLUMN IF NOT EXISTS "avatar" TEXT,
-        ADD COLUMN IF NOT EXISTS "lastLogin" TIMESTAMP(3);
+        ADD COLUMN IF NOT EXISTS "lastLogin" TIMESTAMP(3),
+        ADD COLUMN IF NOT EXISTS "activeOrganizationId" TEXT;
+      `,
+      `
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM pg_constraint
+          WHERE conname = 'User_activeOrganizationId_fkey'
+        ) AND EXISTS (
+          SELECT 1
+          FROM information_schema.tables
+          WHERE table_schema = 'public'
+            AND table_name = 'Organization'
+        ) THEN
+          ALTER TABLE "User"
+            ADD CONSTRAINT "User_activeOrganizationId_fkey"
+            FOREIGN KEY ("activeOrganizationId")
+            REFERENCES "Organization"("id")
+            ON DELETE SET NULL
+            ON UPDATE CASCADE;
+        END IF;
+      END $$;
+      `,
+      `
+      CREATE INDEX IF NOT EXISTS "User_activeOrganizationId_idx" ON "User"("activeOrganizationId");
       `,
       `
       ALTER TABLE "OAuthAccount"

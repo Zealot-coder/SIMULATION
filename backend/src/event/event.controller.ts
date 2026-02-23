@@ -40,8 +40,12 @@ export class EventController {
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string) {
-    return this.eventService.findOne(id);
+  @UseGuards(OrganizationGuard)
+  async findOne(
+    @Param('id') id: string,
+    @CurrentOrganization() organization: any,
+  ) {
+    return this.eventService.findOne(id, organization.id);
   }
 }
 

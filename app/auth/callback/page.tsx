@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { useSession, signIn } from "next-auth/react";
 import { motion } from "framer-motion";
 import { Loader2, CheckCircle2, AlertCircle } from "lucide-react";
-import { getDashboardRouteForRole, isDevRole } from "@/lib/dashboard";
+import { getPublicApiBaseUrl } from "@/lib/api-client";
 
 // Brand colors
 const BRAND_ORANGE = "#f97316";
@@ -66,10 +66,8 @@ function LoadingState({ message }: { message: string }) {
 /**
  * Success state before redirect
  */
-function SuccessState({ role }: { role: string }) {
-  const dashboardRoute = getDashboardRouteForRole(role);
-  const isAdmin = isDevRole(role);
-
+function SuccessState({ destination }: { destination: string }) {
+  const isOnboarding = destination === "/app/onboarding";
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.9 }}
@@ -86,9 +84,9 @@ function SuccessState({ role }: { role: string }) {
         </motion.div>
 
         <div className="space-y-2">
-          <h2 className="text-xl font-semibold">Welcome back!</h2>
+          <h2 className="text-xl font-semibold">{isOnboarding ? "Let's get started" : "Welcome back!"}</h2>
           <p className="text-sm text-muted-foreground">
-            Redirecting to your {isAdmin ? "admin" : "user"} dashboard...
+            Redirecting to {isOnboarding ? "onboarding" : "overview"}...
           </p>
         </div>
       </div>
@@ -143,7 +141,9 @@ function AuthCallbackContent() {
   const { data: session, status } = useSession();
   const [oauthExchangeError, setOauthExchangeError] = useState<string | null>(null);
   const [isExchangingToken, setIsExchangingToken] = useState(false);
+  const [redirectTarget, setRedirectTarget] = useState<string | null>(null);
   const handledBackendToken = useRef(false);
+  const resolvingRedirect = useRef(false);
   const error = searchParams.get("error");
   const backendAccessToken = searchParams.get("token");
   const backendRefreshToken = searchParams.get("refreshToken");
@@ -195,24 +195,47 @@ function AuthCallbackContent() {
       return;
     }
 
-    // Wait for session to be ready
-    if (status === "loading") {
+    if (status === "loading" || !session?.user || redirectTarget || resolvingRedirect.current) {
       return;
     }
 
-    // If we have a session, redirect to appropriate dashboard
-    if (session?.user) {
-      const userRole = (session.user as any).role || "VIEWER";
-      const redirectRoute = getDashboardRouteForRole(userRole);
-      
-      // Short delay to show success state
-      const timeout = setTimeout(() => {
-        router.push(redirectRoute);
-      }, 800);
-      
-      return () => clearTimeout(timeout);
+    const accessToken = (session as any).accessToken as string | undefined;
+    if (!accessToken) {
+      setOauthExchangeError("Session token is missing. Please sign in again.");
+      return;
     }
-  }, [error, oauthExchangeError, isExchangingToken, router, session, status]);
+
+    resolvingRedirect.current = true;
+
+    fetch(`${getPublicApiBaseUrl()}/auth/context`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+      cache: "no-store",
+    })
+      .then(async (response) => {
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          throw new Error(payload?.message || "Failed to resolve organization context");
+        }
+
+        const payload = (await response.json()) as { onboarding_required?: boolean };
+        const nextRoute = payload.onboarding_required ? "/app/onboarding" : "/app/overview";
+        setRedirectTarget(nextRoute);
+
+        setTimeout(() => {
+          router.push(nextRoute);
+        }, 800);
+      })
+      .catch((fetchError: any) => {
+        console.error("Failed to resolve auth context:", fetchError?.message || fetchError);
+        setOauthExchangeError(fetchError?.message || "Failed to resolve organization context.");
+      })
+      .finally(() => {
+        resolvingRedirect.current = false;
+      });
+  }, [error, oauthExchangeError, isExchangingToken, redirectTarget, router, session, status]);
 
   const resolvedError =
     oauthExchangeError ||
@@ -233,9 +256,8 @@ function AuthCallbackContent() {
   }
 
   // Show success state briefly before redirect
-  if (session?.user) {
-    const userRole = (session.user as any).role || "VIEWER";
-    return <SuccessState role={userRole} />;
+  if (session?.user && redirectTarget) {
+    return <SuccessState destination={redirectTarget} />;
   }
 
   if (backendAccessToken || isExchangingToken || status === "loading") {

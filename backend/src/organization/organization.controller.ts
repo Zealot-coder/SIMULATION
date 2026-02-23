@@ -31,13 +31,13 @@ export class OrganizationController {
   }
 
   @Get(':id')
-  async findOne(@Param('id') id: string) {
-    return this.organizationService.findOne(id);
+  async findOne(@Param('id') id: string, @CurrentUser() user: any) {
+    return this.organizationService.findOne(id, user.id);
   }
 
   @Get('slug/:slug')
-  async findBySlug(@Param('slug') slug: string) {
-    return this.organizationService.findBySlug(slug);
+  async findBySlug(@Param('slug') slug: string, @CurrentUser() user: any) {
+    return this.organizationService.findBySlug(slug, user.id);
   }
 
   @Post(':id/members')
@@ -46,8 +46,6 @@ export class OrganizationController {
     @CurrentUser() user: any,
     @Body() dto: AddMemberDto,
   ) {
-    // Verify user has permission (owner or staff)
-    await this.organizationService.verifyMembership(user.id, organizationId);
     return this.organizationService.addMember(organizationId, user.id, dto);
   }
 }

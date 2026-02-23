@@ -19,6 +19,9 @@ export interface User {
   name?: string;
   avatar?: string;
   role: UserRole;
+  organizationId?: string;
+  activeOrganizationId?: string;
+  onboardingRequired?: boolean;
   lastLogin?: string;
   createdAt?: string;
 }
@@ -74,6 +77,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     lastName: (session.user as any).lastName || undefined,
     avatar: session.user.image || (session.user as any).avatar || undefined,
     role: (session.user as any).role || 'VIEWER',
+    organizationId: (session.user as any).organizationId || undefined,
+    activeOrganizationId: (session.user as any).activeOrganizationId || undefined,
+    onboardingRequired: (session.user as any).onboardingRequired ?? undefined,
   } : null;
 
   // Handle route protection

@@ -72,7 +72,8 @@ interface ExtendedUser extends User {
   avatar?: string;
   accessToken: string;
   refreshToken: string;
-  organizationId?: string;
+  activeOrganizationId?: string;
+  onboardingRequired?: boolean;
 }
 
 type BackendLoginResponse = {
@@ -85,7 +86,8 @@ type BackendLoginResponse = {
     name?: string;
     avatar?: string;
     role: UserRole;
-    organizationId?: string;
+    activeOrganizationId?: string;
+    onboardingRequired?: boolean;
   };
   accessToken: string;
   refreshToken: string;
@@ -100,7 +102,8 @@ type BackendMeResponse = {
   name?: string;
   avatar?: string;
   role?: UserRole;
-  organizationId?: string;
+  activeOrganizationId?: string;
+  onboardingRequired?: boolean;
 };
 
 /**
@@ -218,7 +221,8 @@ const providers: NextAuthOptions["providers"] = [
           lastName: data.user.lastName,
           avatar: data.user.avatar,
           role: data.user.role,
-          organizationId: data.user.organizationId,
+          activeOrganizationId: data.user.activeOrganizationId,
+          onboardingRequired: data.user.onboardingRequired,
           accessToken: data.accessToken,
           refreshToken: data.refreshToken,
         };
@@ -245,7 +249,8 @@ const providers: NextAuthOptions["providers"] = [
         lastName: backendUser.lastName,
         avatar: backendUser.avatar,
         role: backendUser.role || "VIEWER",
-        organizationId: backendUser.organizationId,
+        activeOrganizationId: backendUser.activeOrganizationId,
+        onboardingRequired: backendUser.onboardingRequired,
         accessToken,
         refreshToken: credentials?.refreshToken || "",
       };
@@ -299,7 +304,9 @@ export const authOptions: NextAuthOptions = {
           lastName: extendedUser.lastName,
           avatar: extendedUser.avatar,
           role: extendedUser.role,
-          organizationId: extendedUser.organizationId,
+          activeOrganizationId: extendedUser.activeOrganizationId,
+          organizationId: extendedUser.activeOrganizationId,
+          onboardingRequired: extendedUser.onboardingRequired,
         };
         token.accessToken = extendedUser.accessToken;
         token.refreshToken = extendedUser.refreshToken;
