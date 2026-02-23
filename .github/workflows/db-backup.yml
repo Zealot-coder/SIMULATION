@@ -1,0 +1,60 @@
+name: Database Backup
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-backup
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client jq awscli
+
+      - name: Validate policy file
+        run: test -f ops/ops_backup_policy.json
+
+      - name: Run backup job
+        env:
+          OPS_BACKUP_POLICY_FILE: ops/ops_backup_policy.json
+          PROD_DIRECT_URL: ${{ secrets.PROD_DIRECT_URL }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_REGION: auto
+          BACKUP_ENCRYPTION_PASSPHRASE: ${{ secrets.BACKUP_ENCRYPTION_PASSPHRASE }}
+        run: |
+          chmod +x scripts/db/backup.sh
+          scripts/db/backup.sh
+
+      - name: Upload backup manifest artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-manifest-${{ github.run_id }}
+          path: artifacts/backup-manifest-*.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Optional Slack notification on failure
+        if: failure() && env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          payload='{"text":"[SIMULATION] db-backup workflow failed: '"${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"'"}'
+          curl -fsS -X POST -H "Content-Type: application/json" --data "${payload}" "${SLACK_WEBHOOK_URL}" || true

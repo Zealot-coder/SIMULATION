@@ -1,0 +1,14 @@
+{
+  "policy_version": "2026-02-23",
+  "primary_mode": "supabase_pitr",
+  "rpo_minutes": 60,
+  "rto_minutes": 240,
+  "retention_days": 30,
+  "backup_frequency_minutes": 60,
+  "logical_export_frequency_minutes": 360,
+  "monthly_restore_day": "first_sunday",
+  "restore_test_target_env": "staging",
+  "pitr_window_days_min": 7,
+  "verification_queries_file": "scripts/db/verification.sql",
+  "artifact_prefix": "db-backups/simulation"
+}

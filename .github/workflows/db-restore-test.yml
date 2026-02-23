@@ -1,0 +1,91 @@
+name: Database Restore Test
+
+on:
+  schedule:
+    - cron: "30 3 * * 0"
+  workflow_dispatch:
+    inputs:
+      backup_id:
+        description: "Backup ID to restore (use LATEST for newest backup)"
+        required: false
+        default: "LATEST"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: db-restore-test
+  cancel-in-progress: false
+
+jobs:
+  restore-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client jq awscli
+
+      - name: First Sunday guard (UTC)
+        id: first_sunday
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" != "schedule" ]]; then
+            echo "run_restore=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          day="$(date -u +%d)"
+          if (( 10#${day} <= 7 )); then
+            echo "run_restore=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_restore=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip scheduled run outside first Sunday
+        if: steps.first_sunday.outputs.run_restore != 'true'
+        run: echo "Skipping restore test because today is not the first Sunday (UTC)."
+
+      - name: Run restore test
+        if: steps.first_sunday.outputs.run_restore == 'true'
+        env:
+          OPS_BACKUP_POLICY_FILE: ops/ops_backup_policy.json
+          BACKUP_ID: ${{ github.event.inputs.backup_id }}
+          PROD_DIRECT_URL: ${{ secrets.PROD_DIRECT_URL }}
+          STAGING_DIRECT_URL: ${{ secrets.STAGING_DIRECT_URL }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_REGION: auto
+          BACKUP_ENCRYPTION_PASSPHRASE: ${{ secrets.BACKUP_ENCRYPTION_PASSPHRASE }}
+        run: |
+          chmod +x scripts/db/restore.sh scripts/db/restore_test.sh
+          if [[ -z "${BACKUP_ID}" ]]; then
+            export BACKUP_ID="LATEST"
+          fi
+          scripts/db/restore_test.sh
+
+      - name: Upload restore test artifacts
+        if: always() && steps.first_sunday.outputs.run_restore == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-restore-test-${{ github.run_id }}
+          path: |
+            artifacts/restore-proof-*.json
+            artifacts/restore-result-*.json
+            artifacts/restore-test-*.log
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Optional Slack notification on failure
+        if: failure() && env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          payload='{"text":"[SIMULATION] db-restore-test workflow failed: '"${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"'"}'
+          curl -fsS -X POST -H "Content-Type: application/json" --data "${payload}" "${SLACK_WEBHOOK_URL}" || true
