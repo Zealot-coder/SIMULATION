@@ -1,6 +1,22 @@
 import { NotFoundException } from '@nestjs/common';
 import { EventService } from './event.service';
 
+jest.mock('@sentry/node', () => ({
+  captureException: jest.fn(),
+}), { virtual: true });
+jest.mock('nest-winston', () => ({
+  WINSTON_MODULE_PROVIDER: 'WINSTON_MODULE_PROVIDER',
+}), { virtual: true });
+jest.mock('winston', () => ({}), { virtual: true });
+jest.mock('@willsoto/nestjs-prometheus', () => ({
+  InjectMetric: () => () => undefined,
+}), { virtual: true });
+jest.mock('prom-client', () => ({
+  Counter: class {},
+  Gauge: class {},
+  Histogram: class {},
+}), { virtual: true });
+
 describe('EventService tenant scoping', () => {
   it('filters event lookup by organizationId and throws when not found', async () => {
     const prisma = {
@@ -12,6 +28,7 @@ describe('EventService tenant scoping', () => {
     const service = new EventService(
       prisma as any,
       { emit: jest.fn() } as any,
+      {} as any,
       {} as any,
       {} as any,
       {} as any,

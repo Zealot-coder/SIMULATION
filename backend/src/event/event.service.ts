@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AppLoggerService } from '../common/logger/app-logger.service';
 import { WorkflowMetrics } from '../common/metrics/workflow.metrics';
 import { CorrelationContextService } from '../common/context/correlation-context.service';
+import { BusinessMetricsService } from '../business-metrics/business-metrics.service';
 
 @Injectable()
 export class EventService {
@@ -20,6 +21,7 @@ export class EventService {
     private readonly logger: AppLoggerService,
     private readonly metrics: WorkflowMetrics,
     private readonly correlationContext: CorrelationContextService,
+    private readonly businessMetricsService: BusinessMetricsService,
     @InjectQueue('events') private readonly eventQueue: Queue,
   ) {}
 
@@ -37,6 +39,15 @@ export class EventService {
     });
 
     this.metrics.incrementEventIngested(event.type, organizationId);
+    await this.businessMetricsService.recordEventSignal({
+      organizationId,
+      eventType: event.type,
+      eventName: event.name,
+      payload: event.payload,
+      source: event.source,
+      occurredAt: event.createdAt,
+    });
+
     this.eventEmitter.emit('event.created', {
       event,
       organizationId,

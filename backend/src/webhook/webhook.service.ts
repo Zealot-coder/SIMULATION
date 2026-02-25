@@ -7,6 +7,7 @@ import { WorkflowMetrics } from '../common/metrics/workflow.metrics';
 import { AppLoggerService } from '../common/logger/app-logger.service';
 import { PaymentIdempotencyService } from './payment-idempotency.service';
 import { SupportedWebhookProvider, extractWebhookDedupKey } from './webhook-dedup.util';
+import { CommunicationService } from '../communication/communication.service';
 
 @Injectable()
 export class WebhookService {
@@ -19,6 +20,7 @@ export class WebhookService {
     private readonly metrics: WorkflowMetrics,
     private readonly logger: AppLoggerService,
     private readonly paymentIdempotencyService: PaymentIdempotencyService,
+    private readonly communicationService: CommunicationService,
   ) {
     this.ttlHours = Number(this.configService.get<string>('WEBHOOK_DEDUP_TTL_HOURS') || '24');
   }
@@ -83,6 +85,12 @@ export class WebhookService {
         reason: paymentGuard.reason,
       };
     }
+
+    await this.communicationService.applyDeliveryStatusFromWebhook({
+      organizationId: params.organizationId,
+      provider: params.provider,
+      payload: params.payload,
+    });
 
     const event = await this.eventService.create(params.organizationId, {
       type: EventType.CUSTOM,

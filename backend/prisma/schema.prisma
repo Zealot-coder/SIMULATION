@@ -193,6 +193,8 @@ model Organization {
   planAssignment       OrganizationPlan?
   usageRows            OrganizationUsage[]
   safetyViolations     WorkflowSafetyViolation[]
+  hourlyMetrics        OrganizationHourlyMetric[]
+  dailyMetrics         OrganizationDailyMetric[]
   
   // Subscription (future)
   subscriptionTier String? @default("free")
@@ -687,6 +689,52 @@ model OrganizationUsage {
   @@index([date])
   @@index([organizationId, updatedAt])
   @@map("organization_usage")
+}
+
+model OrganizationHourlyMetric {
+  id                   String   @id @default(cuid())
+  organizationId       String   @map("organization_id")
+  hourBucket           DateTime @map("hour_bucket")
+  ordersCreated        Int      @default(0) @map("orders_created")
+  paymentsTotal        Int      @default(0) @map("payments_total")
+  paymentsSuccessful   Int      @default(0) @map("payments_successful")
+  workflowsTotal       Int      @default(0) @map("workflows_total")
+  workflowsFailed      Int      @default(0) @map("workflows_failed")
+  totalExecutionTimeMs BigInt   @default(0) @map("total_execution_time_ms")
+  messagesSent         Int      @default(0) @map("messages_sent")
+  messagesDelivered    Int      @default(0) @map("messages_delivered")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, hourBucket])
+  @@index([hourBucket])
+  @@index([organizationId, hourBucket])
+  @@map("org_hourly_metrics")
+}
+
+model OrganizationDailyMetric {
+  id                   String   @id @default(cuid())
+  organizationId       String   @map("organization_id")
+  dayBucket            DateTime @db.Date @map("day_bucket")
+  ordersCreated        Int      @default(0) @map("orders_created")
+  paymentsTotal        Int      @default(0) @map("payments_total")
+  paymentsSuccessful   Int      @default(0) @map("payments_successful")
+  workflowsTotal       Int      @default(0) @map("workflows_total")
+  workflowsFailed      Int      @default(0) @map("workflows_failed")
+  totalExecutionTimeMs BigInt   @default(0) @map("total_execution_time_ms")
+  messagesSent         Int      @default(0) @map("messages_sent")
+  messagesDelivered    Int      @default(0) @map("messages_delivered")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  organization         Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, dayBucket])
+  @@index([dayBucket])
+  @@index([organizationId, dayBucket])
+  @@map("org_daily_metrics")
 }
 
 model WorkflowSafetyViolation {

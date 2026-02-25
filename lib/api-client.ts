@@ -249,6 +249,49 @@ class ApiClient {
     return this.request<any>(`/workflows/${id}`);
   }
 
+  async getMetricsSummary(params?: {
+    organizationId?: string;
+    from?: string;
+    to?: string;
+  }) {
+    const qp = new URLSearchParams();
+    if (params?.organizationId) qp.set('organizationId', params.organizationId);
+    if (params?.from) qp.set('from', params.from);
+    if (params?.to) qp.set('to', params.to);
+    const query = qp.toString();
+    return this.request(`/metrics/summary${query ? `?${query}` : ''}`);
+  }
+
+  async getMetricsTrends(params?: {
+    organizationId?: string;
+    from?: string;
+    to?: string;
+    granularity?: 'hour' | 'day' | 'auto';
+  }) {
+    const qp = new URLSearchParams();
+    if (params?.organizationId) qp.set('organizationId', params.organizationId);
+    if (params?.from) qp.set('from', params.from);
+    if (params?.to) qp.set('to', params.to);
+    if (params?.granularity) qp.set('granularity', params.granularity);
+    const query = qp.toString();
+    return this.request(`/metrics/trends${query ? `?${query}` : ''}`);
+  }
+
+  async getMetricsWorkflowHealth(params?: {
+    organizationId?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+  }) {
+    const qp = new URLSearchParams();
+    if (params?.organizationId) qp.set('organizationId', params.organizationId);
+    if (params?.from) qp.set('from', params.from);
+    if (params?.to) qp.set('to', params.to);
+    if (params?.limit) qp.set('limit', String(params.limit));
+    const query = qp.toString();
+    return this.request(`/metrics/workflow-health${query ? `?${query}` : ''}`);
+  }
+
   // Admin APIs
   async getAdminUsers(page = 1, limit = 50): Promise<{ users: any[]; pagination: any }> {
     return this.request<{ users: any[]; pagination: any }>(`/admin/users?page=${page}&limit=${limit}`);

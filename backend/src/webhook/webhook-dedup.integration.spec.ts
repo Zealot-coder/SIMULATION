@@ -1,5 +1,21 @@
 import { WebhookService } from './webhook.service';
 
+jest.mock('@sentry/node', () => ({
+  captureException: jest.fn(),
+}), { virtual: true });
+jest.mock('nest-winston', () => ({
+  WINSTON_MODULE_PROVIDER: 'WINSTON_MODULE_PROVIDER',
+}), { virtual: true });
+jest.mock('winston', () => ({}), { virtual: true });
+jest.mock('@willsoto/nestjs-prometheus', () => ({
+  InjectMetric: () => () => undefined,
+}), { virtual: true });
+jest.mock('prom-client', () => ({
+  Counter: class {},
+  Gauge: class {},
+  Histogram: class {},
+}), { virtual: true });
+
 describe('WebhookService dedup integration', () => {
   it('deduplicates concurrent webhook requests and processes side effects once', async () => {
     const dedupState = new Set<string>();
@@ -40,6 +56,9 @@ describe('WebhookService dedup integration', () => {
     const paymentIdempotencyService = {
       guardWebhookPayment: jest.fn(async () => ({ duplicate: false })),
     };
+    const communicationService = {
+      applyDeliveryStatusFromWebhook: jest.fn(async () => ({ updated: false })),
+    };
 
     const service = new WebhookService(
       prisma as any,
@@ -48,6 +67,7 @@ describe('WebhookService dedup integration', () => {
       metrics as any,
       logger as any,
       paymentIdempotencyService as any,
+      communicationService as any,
     );
 
     const payload = {

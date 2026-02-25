@@ -20,6 +20,7 @@ import { GovernanceService } from '../governance/governance.service';
 import { GovernanceErrorCode } from '../governance/governance-error-codes';
 import { PrismaService } from '../prisma/prisma.service';
 import { AiService } from '../ai/ai.service';
+import { BusinessMetricsService } from '../business-metrics/business-metrics.service';
 import {
   calculateRetryDelayMs,
   resolveRetryPolicy,
@@ -54,6 +55,7 @@ export class WorkflowExecutionService {
     private readonly correlationContext: CorrelationContextService,
     private readonly auditService: AuditService,
     private readonly governanceService: GovernanceService,
+    private readonly businessMetricsService: BusinessMetricsService,
     @InjectQueue('workflows') private readonly workflowQueue: Queue,
   ) {}
 
@@ -403,19 +405,26 @@ export class WorkflowExecutionService {
         }
       }
 
+      const completedAt = new Date();
       const workflowDurationSeconds = (Date.now() - workflowStart) / 1000;
       await this.prisma.workflowExecution.update({
         where: { id: execution.id },
         data: {
           status: WorkflowStatus.SUCCESS,
           output: currentOutput as never,
-          completedAt: new Date(),
+          completedAt,
           error: null,
         },
       });
 
       this.metrics.incrementWorkflowRun(execution.workflowId, execution.organizationId, 'SUCCESS');
       this.metrics.observeWorkflowRunDuration(execution.workflowId, workflowDurationSeconds);
+      await this.businessMetricsService.recordWorkflowOutcome({
+        organizationId: execution.organizationId,
+        status: WorkflowStatus.SUCCESS,
+        startedAt: execution.startedAt || execution.createdAt,
+        completedAt,
+      });
 
       if (preparedReplay?.dlqItemId) {
         await this.resolveDlqItemAfterReplay(
@@ -445,17 +454,24 @@ export class WorkflowExecutionService {
       shouldReleaseConcurrencySlot = true;
     } catch (error) {
       const message = getErrorMessage(error);
+      const completedAt = new Date();
 
       await this.prisma.workflowExecution.update({
         where: { id: execution.id },
         data: {
           status: WorkflowStatus.FAILED,
           error: message,
-          completedAt: new Date(),
+          completedAt,
         },
       });
 
       this.metrics.incrementWorkflowRun(execution.workflowId, execution.organizationId, 'FAILED');
+      await this.businessMetricsService.recordWorkflowOutcome({
+        organizationId: execution.organizationId,
+        status: WorkflowStatus.FAILED,
+        startedAt: execution.startedAt || execution.createdAt,
+        completedAt,
+      });
 
       Sentry.captureException(error, {
         tags: {
@@ -502,6 +518,8 @@ export class WorkflowExecutionService {
       id: string;
       workflowId: string;
       organizationId: string;
+      startedAt?: Date | null;
+      createdAt?: Date | null;
     };
     limitCode: GovernanceErrorCode;
     error: string;
@@ -509,13 +527,14 @@ export class WorkflowExecutionService {
     details?: Record<string, unknown>;
     replay?: PreparedReplayContext;
   }): Promise<void> {
+    const completedAt = new Date();
     await this.prisma.workflowExecution.update({
       where: { id: params.execution.id },
       data: {
         status: WorkflowStatus.FAILED_SAFETY_LIMIT,
         error: params.error,
         safetyLimitCode: params.limitCode,
-        completedAt: new Date(),
+        completedAt,
       },
     });
 
@@ -524,6 +543,12 @@ export class WorkflowExecutionService {
       params.execution.organizationId,
       'FAILED_SAFETY_LIMIT',
     );
+    await this.businessMetricsService.recordWorkflowOutcome({
+      organizationId: params.execution.organizationId,
+      status: WorkflowStatus.FAILED_SAFETY_LIMIT,
+      startedAt: params.execution.startedAt || params.execution.createdAt,
+      completedAt,
+    });
 
     await this.governanceService.recordSafetyViolation({
       organizationId: params.execution.organizationId,

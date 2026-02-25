@@ -165,6 +165,9 @@ describe('workflow safety guards', () => {
       releaseConcurrentRunSlot: jest.fn(async () => undefined),
       recordSafetyViolation: jest.fn(async () => undefined),
     };
+    const businessMetricsService = {
+      recordWorkflowOutcome: jest.fn(async () => undefined),
+    };
 
     const service = new WorkflowExecutionService(
       prisma as any,
@@ -176,6 +179,7 @@ describe('workflow safety guards', () => {
       correlationContext as any,
       auditService as any,
       governanceService as any,
+      businessMetricsService as any,
       queue as any,
     );
 

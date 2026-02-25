@@ -7,6 +7,7 @@ import {
   CommunicationStatus,
 } from '@prisma/client';
 import { GovernanceService } from '../governance/governance.service';
+import { BusinessMetricsService } from '../business-metrics/business-metrics.service';
 
 @Injectable()
 export class CommunicationService {
@@ -16,6 +17,7 @@ export class CommunicationService {
     private prisma: PrismaService,
     private configService: ConfigService,
     private governanceService: GovernanceService,
+    private businessMetricsService: BusinessMetricsService,
   ) {}
 
   async sendMessage(dto: SendMessageDto & { organizationId: string }) {
@@ -56,7 +58,7 @@ export class CommunicationService {
       const result = await this.sendViaChannel(dto);
 
       // Update with delivery info
-      await this.prisma.communication.update({
+      const updated = await this.prisma.communication.update({
         where: { id: communication.id },
         data: {
           status: CommunicationStatus.SENT,
@@ -65,7 +67,16 @@ export class CommunicationService {
         },
       });
 
-      return communication;
+      await this.businessMetricsService.recordMessageSent({
+        organizationId: dto.organizationId,
+        sentAt: updated.updatedAt,
+        delivered:
+          updated.status === CommunicationStatus.DELIVERED ||
+          updated.status === CommunicationStatus.READ ||
+          Boolean(updated.deliveredAt),
+      });
+
+      return updated;
     } catch (error: any) {
       this.logger.error(`Failed to send message: ${error.message}`);
 
@@ -81,6 +92,68 @@ export class CommunicationService {
 
       throw error;
     }
+  }
+
+  async applyDeliveryStatusFromWebhook(params: {
+    organizationId: string;
+    provider: string;
+    payload: unknown;
+  }): Promise<{ updated: boolean; communicationId?: string }> {
+    const payload = this.asRecord(params.payload);
+    const externalId = this.extractExternalMessageId(payload);
+    const mappedStatus = this.extractDeliveryStatus(payload);
+
+    if (!externalId || !mappedStatus) {
+      return { updated: false };
+    }
+
+    const existing = await this.prisma.communication.findFirst({
+      where: {
+        organizationId: params.organizationId,
+        externalId,
+      },
+    });
+
+    if (!existing) {
+      return { updated: false };
+    }
+
+    const now = new Date();
+    const shouldMarkDelivered =
+      (mappedStatus === CommunicationStatus.DELIVERED || mappedStatus === CommunicationStatus.READ) &&
+      existing.status !== CommunicationStatus.DELIVERED &&
+      existing.status !== CommunicationStatus.READ;
+
+    if (existing.status === mappedStatus && !shouldMarkDelivered) {
+      return { updated: false };
+    }
+
+    const updated = await this.prisma.communication.update({
+      where: {
+        id: existing.id,
+      },
+      data: {
+        status: mappedStatus,
+        deliveredAt:
+          mappedStatus === CommunicationStatus.DELIVERED || mappedStatus === CommunicationStatus.READ
+            ? existing.deliveredAt || now
+            : existing.deliveredAt,
+        readAt:
+          mappedStatus === CommunicationStatus.READ ? existing.readAt || now : existing.readAt,
+      },
+    });
+
+    if (shouldMarkDelivered) {
+      await this.businessMetricsService.recordMessageDelivered({
+        organizationId: params.organizationId,
+        deliveredAt: now,
+      });
+    }
+
+    return {
+      updated: true,
+      communicationId: updated.id,
+    };
   }
 
   private async sendViaChannel(dto: SendMessageDto): Promise<{
@@ -212,6 +285,66 @@ export class CommunicationService {
       externalId: `voice-${Date.now()}`,
       deliveredAt: new Date(),
     };
+  }
+
+  private asRecord(value: unknown): Record<string, unknown> {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+    return {};
+  }
+
+  private extractExternalMessageId(payload: Record<string, unknown>): string | undefined {
+    const keys = [
+      'messageId',
+      'message_id',
+      'externalId',
+      'external_id',
+      'id',
+      'whatsappMessageId',
+      'sid',
+    ];
+    for (const key of keys) {
+      const value = payload[key];
+      if (typeof value === 'string' && value.trim().length > 0) {
+        return value.trim();
+      }
+    }
+    return undefined;
+  }
+
+  private extractDeliveryStatus(payload: Record<string, unknown>): CommunicationStatus | undefined {
+    const candidates = [
+      payload.status,
+      payload.deliveryStatus,
+      payload.delivery_status,
+      payload.messageStatus,
+      payload.message_status,
+      payload.event,
+      payload.type,
+    ];
+
+    for (const candidate of candidates) {
+      if (typeof candidate !== 'string') {
+        continue;
+      }
+
+      const normalized = candidate.trim().toLowerCase();
+      if (['delivered', 'delivery_success', 'sent_success'].includes(normalized)) {
+        return CommunicationStatus.DELIVERED;
+      }
+      if (['read', 'seen'].includes(normalized)) {
+        return CommunicationStatus.READ;
+      }
+      if (['failed', 'undelivered', 'delivery_failed'].includes(normalized)) {
+        return CommunicationStatus.FAILED;
+      }
+      if (['sent', 'queued', 'accepted'].includes(normalized)) {
+        return CommunicationStatus.SENT;
+      }
+    }
+
+    return undefined;
   }
 }
 

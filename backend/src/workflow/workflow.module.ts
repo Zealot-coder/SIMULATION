@@ -12,6 +12,7 @@ import { WorkflowDlqService } from './workflow-dlq.service';
 import { WorkflowDlqController } from './workflow-dlq.controller';
 import { WorkflowStepDedupService } from './workflow-step-dedup.service';
 import { GovernanceModule } from '../governance/governance.module';
+import { BusinessMetricsModule } from '../business-metrics/business-metrics.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { GovernanceModule } from '../governance/governance.module';
     CommunicationModule,
     AuditModule,
     GovernanceModule,
+    BusinessMetricsModule,
     BullModule.registerQueue({
       name: 'workflows',
     }),

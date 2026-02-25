@@ -6,11 +6,13 @@ import { EventController } from './event.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { WorkflowModule } from '../workflow/workflow.module';
 import { EventProcessor } from './event.processor';
+import { BusinessMetricsModule } from '../business-metrics/business-metrics.module';
 
 @Module({
   imports: [
     PrismaModule,
     forwardRef(() => WorkflowModule),
+    BusinessMetricsModule,
     BullModule.registerQueue({
       name: 'events',
     }),
