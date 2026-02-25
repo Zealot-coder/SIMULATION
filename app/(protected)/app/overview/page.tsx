@@ -263,20 +263,16 @@ export default function AppOverviewPage() {
       )}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        {(loading ? Array.from({ length: 5 }) : kpiMap).map((metric, index) => {
-          if (loading) {
-            return (
+        {loading
+          ? Array.from({ length: 5 }).map((_, index) => (
               <Card key={`metric-skeleton-${index}`}>
                 <CardContent className="pt-6">
                   <div className="h-5 w-24 animate-pulse rounded bg-muted" />
                   <div className="mt-3 h-8 w-20 animate-pulse rounded bg-muted" />
                 </CardContent>
               </Card>
-            );
-          }
-
-          return <MetricKpiCard key={metric.key} metric={metric} />;
-        })}
+            ))
+          : kpiMap.map((metric) => <MetricKpiCard key={metric.key} metric={metric} />)}
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">

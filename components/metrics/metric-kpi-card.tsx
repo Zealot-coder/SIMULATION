@@ -1,10 +1,9 @@
 "use client";
 
-import { Activity, Clock3, MessageSquare, ShoppingCart, Wallet } from "lucide-react";
+import { Activity, Clock3, MessageSquare, ShoppingCart, Wallet, type LucideIcon } from "lucide-react";
 import { KpiCard } from "@/components/kpi-card";
 import { MetricAlertBadge, type AlertSeverity } from "@/components/metrics/metric-alert-badge";
 import { cn } from "@/lib/utils";
-import type { ComponentType } from "react";
 
 export interface DashboardMetricCard {
   key: string;
@@ -22,7 +21,7 @@ interface MetricKpiCardProps {
   className?: string;
 }
 
-const iconByMetric: Record<string, ComponentType<{ className?: string }>> = {
+const iconByMetric: Record<string, LucideIcon> = {
   orders_created: ShoppingCart,
   payment_success_rate: Wallet,
   workflow_failure_rate: Activity,
